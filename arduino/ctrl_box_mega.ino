@@ -344,7 +344,7 @@ void parseI2Cdata()
 //
 //    case 254:
 //    {
-//        Serial.println("command pending");      // Means the command has not yet been finished calculating.
+//               // Means the command has not yet been finished calculating.
 //        delay(200);                             // We wait for 200ms and give the circuit some time to complete the command
 //        break;
 //    }
