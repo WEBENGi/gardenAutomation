@@ -5,6 +5,7 @@
 #include <Adafruit_BME280.h>
 #include <PubSubClient.h>
 #include <DallasTemperature.h>
+#include "driver/ledc.h"
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 #define PIN_RELAY8_01 17 
@@ -46,7 +47,7 @@ const int resolution = 8;
 
 #define ONE_WIRE_BUS 32 // PIN_WATER_TEMP_SENSOR
 #define BUILTIN_LED 2
-
+#define SEALEVELPRESSURE_HPA (1013.25) // set sea level pressure to 1013.25 hPa
 Adafruit_BME280 bme;
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);  
@@ -68,9 +69,9 @@ unsigned long atlasPeriod = 5000;                    // How long to wait, in mil
 
 
 // WiFi/MQTT/Serial
-const char* ssid = "SSID";
-const char* password = "password";
-const char* mqtt_server = "";
+char ssid[]= "YOUR___SSID";
+const char* password = "YOUR___PASS";
+const char* mqtt_server = "YOUR___MQTTSERVERIP";
 WiFiClient espClient;
 PubSubClient client(espClient);
 const byte numChars = 100;
@@ -113,41 +114,44 @@ void callback(char* topic, byte* payload, unsigned int length)
 
     if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
     {
-        Serial2.print("<Relay:");               // Print this command to the Mega since it handles the relays.
-        Serial2.print(payloadStr);
-        Serial2.println('>');
+        /*Serial1.print("<Relay:");               // Print this command to the Mega since it handles the relays.
+        Serial1.print(payloadStr);
+        Serial1.println('>');*/
+        
+         int boardNumber;
+          int relayNumber;
+          int relayPower;
+          char* strtokIndx;
+          char buff[20];
+
+          strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character
+          strtokIndx = strtok(NULL, ":");                             // Get the board number
+          boardNumber = atoi(strtokIndx);
+          strtokIndx = strtok(NULL, ":");                             // Get the relay number
+          relayNumber = atoi(strtokIndx);
+          strtokIndx = strtok(NULL, ":");                             // Get the relay power state
+          relayPower = atoi(strtokIndx);
+
+          triggerRelay(boardNumber, relayNumber, relayPower);
+
+          sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
+          Serial.println(buff);
     }
     // CALLBACK: Dosing
     if (strcmp(topic, "control/dosing") == 0)   // Incoming message format will be <PUMP#>:<ONTIME>. ONTIME is in milliseconds.
     {
-        int pumpNumber;
-        long onTime;
-        char* strtokIndx;
-
-        strtokIndx = strtok(payloadStr, ":");     // Get the pump number
-        pumpNumber = atoi(strtokIndx);
-        strtokIndx = strtok(NULL, ":");
-        onTime = atol(strtokIndx);              // Get the on time
-
-        Serial.println(pumpNumber);
-        Serial.println(onTime);
-        setPumpPower(pumpNumber, onTime);
+        Serial1.print("<DosingPumpPower:");               // Print this command to the Mega since it handles
+        Serial1.print(payloadStr);
+        Serial1.println('>');   
     }
 
     // CALLBACK: Pump Speed Adjustments 
 
     if (strcmp(topic, "calibrate/dosing") == 0)
     {
-        int pumpNumber;
-        int pwmVal;
-        char* strtokIndx;
-
-        strtokIndx = strtok(payloadStr, ":");    // Get the pump number
-        pumpNumber = atoi(strtokIndx);
-        strtokIndx = strtok(NULL, ",");
-        pwmVal = atoi(strtokIndx);              // Get the PWM val
-
-        setPumpSpeeds(pumpNumber, pwmVal);
+        Serial1.print("<PumpSpeed:");               // Print this command to the Mega since it handles
+        Serial1.print(payloadStr);
+        Serial1.println('>');   
     }
   
   // CALLBACK: pH Calibration 
@@ -160,7 +164,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopReadings = true;
                 delay(2000);
-                Serial2.println("<99:Cal,mid,7.00>");
+                Serial1.println("<99:Cal,mid,7.00>");
                 atlasMillis = millis();
                 stopReadings = false;
                 break;
@@ -169,7 +173,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopReadings = true;
                 delay(2000);
-                Serial2.println("<99:Cal,low,4.00>");
+                Serial1.println("<99:Cal,low,4.00>");
                 atlasMillis = millis();
                 stopReadings = false;
                 break;
@@ -178,9 +182,9 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopReadings = true;
                 delay(2000);
-                Serial2.println("<99:Cal,high,10.00>");
+                Serial1.println("<99:Cal,high,10.00>");
                 delay(2000);
-                Serial2.println("<99:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
+                Serial1.println("<99:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
                 atlasMillis = millis();
                 stopReadings = false;
                 break;
@@ -196,9 +200,10 @@ void callback(char* topic, byte* payload, unsigned int length)
         {
             case 'd':
             {
+
                 stopReadings = true;
                 delay(2000);
-                Serial2.println("<100:Cal,dry>");
+                Serial1.println("<100:Cal,dry>");
                 delay(1000);
                 atlasMillis = millis();
                 stopReadings = false;
@@ -208,7 +213,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopReadings = true;
                 delay(2000);
-                Serial2.println("<100:Cal,low,700>");
+                Serial1.println("<100:Cal,low,700>");
                 delay(1000);
                 atlasMillis = millis();
                 stopReadings = false;
@@ -218,9 +223,9 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopReadings = true;
                 delay(2000);
-                Serial2.println("<100:Cal,high,2000>");
+                Serial1.println("<100:Cal,high,2000>");
                 delay(2000);
-                Serial2.println("<100:Cal,?>");              // Again, how many points of calibration?
+                Serial1.println("<100:Cal,?>");              // Again, how many points of calibration?
                 atlasMillis = millis();
                 stopReadings = false;
                 break;
@@ -281,15 +286,14 @@ void setup()
 {   
     char buff[60];
     Serial.begin(115200);
-    Serial2.begin(115200);
+    Serial1.begin(115200);
     Serial.read();
-    Serial2.read();
+    Serial1.read();
 
     pinMode(BUILTIN_LED, OUTPUT);
     setup_wifi();
     client.setServer(mqtt_server, 1883);
     client.setCallback(callback);
-
  
     sensors.begin();
     bme.begin(0x76);
@@ -301,6 +305,14 @@ void setup()
     ledcSetup(PIN_PWM_FAN, freq, resolution);
     ledcAttachPin(PIN_PWM_FAN, 1);///pwmChannel[6]);
     ledcWrite(1,125);//pwmChannel[NOCTUA], 125);
+    for (int i = 0; i <= 2; i++)
+    {
+      for (unsigned int j = 0; j <= NUM_ELEMENTS(relayPins[i]); j++)
+      {
+        pinMode(relayPins[i][j], OUTPUT);
+        digitalWrite(relayPins[i][j], HIGH);
+      }
+    }
 }
 
 void loop()                                                                           // I'm using millis() to try to keep my loop running as fast as possible. I tried to avoid having any "delay(x)" lines, which block the program.
@@ -322,26 +334,26 @@ void loop()                                                                     
     {
         if (currentMillis - tempCompMillis > tempCompPeriod)                              // Is it time to compensate for temperature?
         {
-        if ((celcius >= 10) && (celcius <= 30))                                         // Make sure I'm not getting a garbage reading from temp sensor prior to sending temp compensation to pH circuit
-        {
-            Serial2.print("<99:T,");
-            Serial2.print(waterTemp);
-            Serial2.println('>');
-            tempCompMillis = millis();
-            atlasMillis = millis();
-        }
+            if ((celcius >= 10) && (celcius <= 30))                                         // Make sure I'm not getting a garbage reading from temp sensor prior to sending temp compensation to pH circuit
+            {
+                Serial1.print("<99:T,");
+                Serial1.print(waterTemp);
+                Serial1.println('>');
+                tempCompMillis = millis();
+                atlasMillis = millis();
+            }
         }
         else if (pHCalledLast == false)                                                 // If pH circuit was not read last, read it.
         {
-        Serial2.println("<99:R>");
-        pHCalledLast = true;
-        atlasMillis = millis();
+            Serial1.println("<99:R>");
+            pHCalledLast = true;
+            atlasMillis = millis();
         }
         else                                                                            // Otherwise read EC.
         {
-        Serial2.println("<100:R>");
-        pHCalledLast = false;
-        atlasMillis = millis();
+            Serial1.println("<100:R>");
+            pHCalledLast = false;
+            atlasMillis = millis();
         }
     }
 
@@ -358,28 +370,28 @@ void recvWithStartEndMarkers()                                        // Functio
     char endMarker = '>';
     char rc;
 
-    while (Serial2.available() > 0 && newData == false)
+    while (Serial1.available() > 0 && newData == false)
     {
-        rc = Serial2.read();
+        rc = Serial1.read();
 
         if (recvInProgress == true)
         {
-        if (rc != endMarker)
-        {
-            receivedChars[ndx] = rc;
-            ndx++;
-            if (ndx >= numChars)
+            if (rc != endMarker)
             {
-            ndx = numChars - 1;
+                receivedChars[ndx] = rc;
+                ndx++;
+                if (ndx >= numChars)
+                {
+                ndx = numChars - 1;
+                }
             }
-        }
-        else
-        {
-            receivedChars[ndx] = '\0'; //Terminate the string
-            recvInProgress = false;
-            ndx = 0;
-            newData = true;
-        }
+            else
+            {
+                receivedChars[ndx] = '\0'; //Terminate the string
+                recvInProgress = false;
+                ndx = 0;
+                newData = true;
+            }
         }
 
         else if (rc == startMarker)
@@ -511,3 +523,42 @@ void getWaterLevel()
     dtostrf(bme.readAltitude(SEALEVELPRESSURE_HPA), 3, 1, bmeBuffer);
     client.publish("feedback/waterLevel", bmeBuffer);
 }
+void triggerRelay(int boardNumber, int relayNumber, int relayTrigger)
+{
+    char buff[50];
+    sprintf(buff, "Triggering board#:%d, relay#:%d, state: %d",boardNumber,relayNumber,relayTrigger);
+    Serial.println(buff);
+    if (relayTrigger == 1)
+    {
+      digitalWrite(relayPins[boardNumber][relayNumber], LOW); // Turn relay ON
+    }
+    else if (relayTrigger == 0)
+    {
+      digitalWrite(relayPins[boardNumber][relayNumber], HIGH); // Turn relay OFF
+    }
+}
+/*
+ *       case 'R':                                                     // If message starts with "R", it's for relays. Message format is "Relay:<BOARD#>:<RELAY#>:<STATUS>". Example: "Relay:0:4:1"
+        {
+          int boardNumber;
+          int relayNumber;
+          int relayPower;
+          char* strtokIndx;
+          char buff[20];
+
+          strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character
+          strtokIndx = strtok(NULL, ":");                             // Get the board number
+          boardNumber = atoi(strtokIndx);
+          strtokIndx = strtok(NULL, ":");                             // Get the relay number
+          relayNumber = atoi(strtokIndx);
+          strtokIndx = strtok(NULL, ":");                             // Get the relay power state
+          relayPower = atoi(strtokIndx);
+
+          triggerRelay(boardNumber, relayNumber, relayPower);
+
+          sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
+          Serial3.println(buff);
+          break;
+        }
+
+ */
