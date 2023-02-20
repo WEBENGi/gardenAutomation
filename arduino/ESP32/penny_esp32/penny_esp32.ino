@@ -5,7 +5,7 @@
 #include <Adafruit_BME280.h>
 #include <PubSubClient.h>
 #include <DallasTemperature.h>
-#include "driver/ledc.h"
+// #include "driver/ledc.h"
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 #define PIN_RELAY8_01 17 
@@ -66,7 +66,6 @@ unsigned long atlasMillis = millis();                // Timer for polling the At
 const unsigned long tempCheckPeriod = 30000;         // How long to wait, in milliseconds, between checking box/water temp
 const unsigned long tempCompPeriod = 600000;         // How long to wait, in milliseconds, between sending temperature compensation factor to ezo pH circuit
 unsigned long atlasPeriod = 5000;                    // How long to wait, in milliseconds, between polling Atlas sensors for values
-
 
 // WiFi/MQTT/Serial
 char ssid[]= "YOUR___SSID";
@@ -403,89 +402,81 @@ void recvWithStartEndMarkers()                                        // Functio
 
 void processSerialData()
 {
-    if (newData == true)
+  if (newData != true){return;} 
+  client.publish("feedback/debug", receivedChars);
+  char commandChar = receivedChars[0];
+  switch (commandChar)
+  {
+    case 'P': // If message starts with 'P' (pH)
     {
-        client.publish("feedback/debug", receivedChars);
-        char commandChar = receivedChars[0];
-        switch (commandChar)
-        {
-        case 'P':                                                                                      // If message starts with 'P' (pH)
-            {
-                char* strtokIndx;
-                strtokIndx = strtok(receivedChars, ":");                                                // Skip the first segment which is the identifier
-                strtokIndx = strtok(NULL, ":");
-                client.publish("feedback/atlas_pH", strtokIndx);
-            if (receivedChars[8] == '3')
-            {
-                client.publish("feedback/general", "pH Cal Successful!");   // When we ask the pH EZO circuit above how many points it has calibrated, if it responds with a 3 here, publish success message to HA.
-            }
-            break;
-            }
-
-        case 'E':                                                                                     // If message starts with 'E' (EC)
-            {
-                char* strtokIndx;
-                strtokIndx = strtok(receivedChars, ":");                                                 // Skip the first segment which is the identifier;
-                strtokIndx = strtok(NULL, ":");
-                client.publish("feedback/atlas_EC", strtokIndx);
-            if (receivedChars[8] == '2')                                                            // EC is considered 2 point calibration for some reason (dry, low, high)
-            {
-                client.publish("feedback/general", "EC Cal Successful!");
-            }
-            break;
-            }
-
-        case 'F':                                                       // If message starts with F (Flood)
-            {
-            client.publish("feedback/flood", receivedChars);
-            break;
-            }
-
-        case 'W':
-            {
-            char* strtokIndx;
-            strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
-            strtokIndx = strtok(NULL, ":");
-            client.publish("feedback/waterLevel", strtokIndx);
-            break;
-            }
-
-        case 'B':                                                      // Drain basin float sensor status
-            {
-            client.publish("feedback/drainBasin", receivedChars);
-            break;
-            }
-
-        case 'H':                                                      // HX711 calibration status (mixing res scale)
-            {
-            client.publish("feedback/hx711", receivedChars);
-            break;
-            }
-
-        case 'R':                                                      // Relay feedback. Message format is "Relay FB:<BOARD#>:<RELAY#>:<STATUS>". Example: "Relay FB:0:4:1"
-            {
-            int boardNumber;
-            int relayNumber;
-            int relayPower;
-            char* strtokIndx;  
-            char buff[18];
-        
-            strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment which is the 'R'
-            strtokIndx = strtok(NULL, ":");                            // Get the board number
-            boardNumber = atoi(strtokIndx);
-            strtokIndx = strtok(NULL, ":");                            // Get the relay number
-            relayNumber = atoi(strtokIndx);  
-            strtokIndx = strtok(NULL, ":");                            // Get the relay power state
-            relayPower = atoi(strtokIndx);
-            
-            sprintf(buff, "%d:%d:%d", boardNumber, relayNumber, relayPower);
-            client.publish("feedback/relays",buff);
-            Serial.println(buff);
-            break;
-            }
-        }
-        newData = false;
+      char* strtokIndx;
+      strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier
+      strtokIndx = strtok(NULL, ":");
+      client.publish("feedback/atlas_pH", strtokIndx);
+      if (receivedChars[8] == '3')
+      {
+          client.publish("feedback/general", "pH Cal Successful!");   // When we ask the pH EZO circuit above how many points it has calibrated, if it responds with a 3 here, publish success message to HA.
+      }
+      break;
     }
+    case 'E':  // If message starts with 'E' (EC)
+    {
+      char* strtokIndx;
+      strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier;
+      strtokIndx = strtok(NULL, ":");
+      client.publish("feedback/atlas_EC", strtokIndx);
+      if (receivedChars[8] == '2')   // EC is considered 2 point calibration for some reason (dry, low, high)
+      {
+          client.publish("feedback/general", "EC Cal Successful!");
+      }
+      break;
+    }
+    case 'F': // If message starts with F (Flood)
+    {
+      client.publish("feedback/flood", receivedChars);
+      break;
+    }
+    case 'W':
+    {
+      char* strtokIndx;
+      strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
+      strtokIndx = strtok(NULL, ":");
+      client.publish("feedback/waterLevel", strtokIndx);
+      break;
+    }
+    case 'B':                                                      // Drain basin float sensor status
+    {
+      client.publish("feedback/drainBasin", receivedChars);
+      break;
+    }
+    case 'H':                                                      // HX711 calibration status (mixing res scale)
+    {
+      client.publish("feedback/hx711", receivedChars);
+      break;
+    }
+    case 'R':                                                      // Relay feedback. Message format is "Relay FB:<BOARD#>:<RELAY#>:<STATUS>". Example: "Relay FB:0:4:1"
+    {
+      int boardNumber;
+      int relayNumber;
+      int relayPower;
+      char* strtokIndx;  
+      char buff[18];
+
+      strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment which is the 'R'
+      strtokIndx = strtok(NULL, ":");                            // Get the board number
+      boardNumber = atoi(strtokIndx);
+      strtokIndx = strtok(NULL, ":");                            // Get the relay number
+      relayNumber = atoi(strtokIndx);  
+      strtokIndx = strtok(NULL, ":");                            // Get the relay power state
+      relayPower = atoi(strtokIndx);
+      
+      sprintf(buff, "%d:%d:%d", boardNumber, relayNumber, relayPower);
+      client.publish("feedback/relays",buff);
+      Serial.println(buff);
+      break;
+    }
+  }
+  newData = false;
 }
 
 void getWaterTemp()

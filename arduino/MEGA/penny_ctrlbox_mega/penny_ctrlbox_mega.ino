@@ -1,11 +1,11 @@
 #include <DallasTemperature.h>
-#include <Wire.h>
+//#include <Wire.h>
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 
 //placeholders for the pins
 
-#define WATER_LEAK_SENSOR_1 0
+#define WATER_LEAK_SENSOR_1 A14 // should this be analog?
 
 #define PIN_MC_1_ENA 31
 #define PIN_MC_1_ENB 32
@@ -20,22 +20,22 @@
 #define PIN_MC_3_IO1 35
 #define PIN_MC_3_IO3 34
 
-#define ANALOG_PIN_SOIL_01 4
-#define ANALOG_PIN_SOIL_02 5
-#define ANALOG_PIN_SOIL_03 6
-#define ANALOG_PIN_SOIL_04 7
-#define ANALOG_PIN_SOIL_05 8
-#define ANALOG_PIN_SOIL_06 9
-#define ANALOG_PIN_SOIL_07 10
-#define ANALOG_PIN_SOIL_08 11
-#define ANALOG_PIN_SOIL_09 12
+#define ANALOG_PIN_SOIL_01 A4
+#define ANALOG_PIN_SOIL_02 A5
+#define ANALOG_PIN_SOIL_03 A6
+#define ANALOG_PIN_SOIL_04 A7
+#define ANALOG_PIN_SOIL_05 A8
+#define ANALOG_PIN_SOIL_06 A9
+#define ANALOG_PIN_SOIL_07 A10
+#define ANALOG_PIN_SOIL_08 A11
+#define ANALOG_PIN_SOIL_09 A12
 //#define ANALOG_PIN_SOIL_10 13 Not used yet
 
 #define PIN_SOIL_FLOOD 48
-#define PIN_PH_PO_SENSOR a3
-#define PIN_PH_DO_SENSOR a2
-#define PIN_PH_TO_SENSOR a1
-#define PIN_TDS_SENSOR a15
+#define PIN_PH_PO_SENSOR A3
+#define PIN_PH_DO_SENSOR A2
+#define PIN_PH_TO_SENSOR A1
+#define PIN_TDS_SENSOR A15
 #define PIN_FLOAT_VALVE 49
 
 #define PIN_US_DISTANCE_1_TRIG 16
@@ -50,6 +50,13 @@ unsigned long baudRate  = 115200;
 
 const float waterLevel1Offset = 0; // offset in centimeters from the sensor to the water surface
 const float waterLevel2Offset = 0; // offset in centimeters from the sensor to the water surface
+
+#define VREF 5.0 // analog reference voltage(Volt) of the ADC
+#define SCOUNT 30 // sum of sample point
+int analogBuffer[SCOUNT]; // store the analog value in the array, read from ADC
+int analogBufferTemp[SCOUNT];
+int analogBufferIndex = 0,copyIndex = 0;
+float averageVoltage = 0,tdsValue = 0,temperature = 25;
 
 // Atlas
 int channel;                                    // For channel switching - 0-7 serial, 8-127 I2C addresses
@@ -83,6 +90,7 @@ unsigned long soilWaterLvlMillis;                   // Timer to check water soil
 unsigned long drainBucketMillis;                 // Timer to check drain basin float sensor
 unsigned long waterLvl1Millis;
 unsigned long waterLvl2Millis;
+unsigned long waterTDSMillis;
 //unsigned long soilWaterLvlMillis;
 
 const unsigned long waterLvl1Period = 1000;      // Time in milliseconds between checking nute res water level
@@ -90,16 +98,21 @@ const unsigned long waterLvl2Period = 1000;      // Time in milliseconds between
 const unsigned long floodPeriod = 10000;        // Time between checking floor moisture sensors for flood
 const unsigned long drainBucketPeriod = 3000;    // Time between checking float sensor in drain basin in tent
 const unsigned long soilWaterLvlPeriod = 1000;  // Time between soil water level checking
+const unsigned long waterTDSPeriod = 1000;  // Time between soil water level checking
 
 //unsigned long scaleCalMillis;                   // Timer to read the scale when calibrating it
-unsigned long i2cWaitMillis;                    // Timer to wait for i2c data after call
-unsigned long i2cWaitPeriod;                    // Time to wait for sensor data after I2C_call function
+//unsigned long i2cWaitMillis;                    // Timer to wait for i2c data after call
+//unsigned long i2cWaitPeriod;                    // Time to wait for sensor data after I2C_call function
 //const unsigned long drainageCheckPeriod = 2000; // Time between checking drain bucket float sensor
 //const unsigned long scaleCalPeriod = 500;       // Time between reading HX711 sensor when calibrating
 
-// Atlas
+/*// Atlas
 boolean pHCalledLast = false;                       // Tracks whether pH was polled last or EC.F
 boolean stopReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
+*/
+const int pHpin = A0;    // Analog input pin for pH sensor
+const float pHoffset = 0.00;    // pH offset calibration value
+const float pHslope = 1.00;     // pH slope calibration value
 
 const int soilWaterSensorPin[9] 
 {
@@ -138,10 +151,10 @@ void setup() {
   pinMode(PIN_US_DISTANCE_2_ECHO, INPUT);
   Serial3.begin(baudRate);
   Serial.begin(baudRate);
-  Wire.begin();
+ // Wire.begin();
   floodStartMillis = 0;
   pinMode(PIN_FLOAT_VALVE, INPUT_PULLUP);
-
+  pinMode(PIN_TDS_SENSOR, INPUT);
 
   for (unsigned int i = 0; i < NUM_ELEMENTS(dosingPumpEnablePin); i++)
   {
@@ -178,6 +191,7 @@ void loop() {
   {
     checkWaterLvl1();
   }
+
   if (currentMillis - waterLvl2Millis >= waterLvl2Period)
   {
     checkWaterLvl2();
@@ -187,6 +201,11 @@ void loop() {
   if (currentMillis - floodStartMillis >= floodPeriod)
   {
     checkForFlood();
+  }
+
+  if (currentMillis - waterTDSMillis >= waterTDSPeriod)
+  {
+    checkWaterTDS();
   }
 
   /*if ((currentMillis - i2cWaitMillis >= i2cWaitPeriod) && (i2cCallComplete == true))
@@ -243,7 +262,7 @@ void setPumpPower(int pumpNumber, long onTime)
 //  client.publish("feedback/dosing", buff);                        // Send feedback (<PUMP#>:<STATE>)
 }
 
-void I2C_call()                                                     // Function to parse and call I2C commands.
+/*void I2C_call()                                                     // Function to parse and call I2C commands.
 {
   memset(sensorData, 0, sizeof(sensorData));                        // Clear sensorData array;
 
@@ -310,7 +329,7 @@ void parseI2Cdata()
     }
   }
   i2cCallComplete = false;
-}
+}*/
 /*
   void checkWaterLvl()
   {
@@ -400,7 +419,21 @@ void checkWaterLvl2()
   }
   waterLvl2Millis = millis();
 }
-
+void checkPHLevel(){
+  float pHraw, pHval;
+  
+  // Read the raw value from the pH sensor
+  pHraw = analogRead(pHpin);
+  
+  // Convert the raw value to a pH value using the calibration values
+  pHval = (pHraw - 512) * pHslope + pHoffset;
+  
+  // Output the pH value to the serial monitor
+  Serial.print("pH: ");
+  Serial.println(pHval, 2);   // Print pH value with 2 decimal places
+  
+  delay(1000);    // Wait for 1 second before reading again
+}
 void checkDrainBucket()
 {
   long drainBucketStatus;
@@ -443,7 +476,7 @@ void recvWithStartEndMarkers()                                       // Check fo
   while (Serial3.available() > 0 && newData == false)
   {
     rc = Serial3.read();
-
+  
     if (recvInProgress == true)
     {
       if (rc != endMarker)
@@ -566,4 +599,80 @@ void processSerialData()
   }
 }
 void checkSoilWaterLvl() {
+}
+void checkTDSSensor(){
+  static unsigned long analogSampleTimepoint = millis();
+  if(millis()-analogSampleTimepoint > 40U) //every 40 milliseconds,read the analog value from the ADC
+  {
+    analogSampleTimepoint = millis();
+    analogBuffer[analogBufferIndex] = analogRead(TdsSensorPin); //read the analog value and store into the buffer
+    analogBufferIndex++;
+    if(analogBufferIndex == SCOUNT) { analogBufferIndex = 0; }
+  }
+  static unsigned long printTimepoint = millis();
+  if(millis()-printTimepoint > 800U)
+  {
+    printTimepoint = millis();
+    for(copyIndex=0;copyIndex<SCOUNT;copyIndex++){
+      analogBufferTemp[copyIndex]= analogBuffer[copyIndex];
+      averageVoltage = getMedianNum(analogBufferTemp,SCOUNT) * (float)VREF/ 1024.0; // read the analog value more stable by the median filtering algorithm, and convert to voltage value
+      float compensationCoefficient=1.0+0.02*(temperature-25.0); //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
+      float compensationVolatge=averageVoltage/compensationCoefficient; //temperature compensation
+      tdsValue=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - 255.86*compensationVolatge*compensationVolatge + 857.39*compensationVolatge)*0.5; //convert voltage value to tds value
+      //Serial.print("voltage:");
+      //Serial.print(averageVoltage,2);
+      //Serial.print("V ");
+      Serial.print("TDS Value:");
+      Serial.print(tdsValue,0);
+      Serial.println("ppm");
+    }
+  }
+}
+float getMedianNum(int* tdsValues, int numValues) {
+  // Sort the array in ascending order
+  qsort(tdsValues, numValues, sizeof(int), [](const void* a, const void* b) {
+    int arg1 = *static_cast<const int*>(a);
+    int arg2 = *static_cast<const int*>(b);
+    if (arg1 < arg2) return -1;
+    if (arg1 > arg2) return 1;
+    return 0;
+  });
+
+  // Calculate the median value
+  int middleIndex = numValues / 2;
+  float medianValue;
+  if (numValues % 2 == 0) {
+    medianValue = (float)(tdsValues[middleIndex - 1] + tdsValues[middleIndex]) / 2.0;
+  } else {
+    medianValue = (float)tdsValues[middleIndex];
+  }
+
+  return medianValue;
+}
+int getMedianNum2(int bArray[], int iFilterLen)
+{
+  int bTab[iFilterLen];
+  for (byte i = 0; i<iFilterLen; i++)
+  {
+    bTab[i] = bArray[i];
+    int i, j, bTemp;
+    for (j = 0; j < iFilterLen - 1; j++)
+    {
+      for (i = 0; i < iFilterLen - j - 1; i++)
+      {
+        if (bTab[i] > bTab[i + 1])
+        {
+          bTemp = bTab[i];
+          bTab[i] = bTab[i + 1];
+          bTab[i + 1] = bTemp;
+        }
+      }
+    }
+  }
+  if ((iFilterLen & 1) > 0)
+    bTemp = bTab[(iFilterLen - 1) / 2];
+  else
+    bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;
+
+  return bTemp;
 }
