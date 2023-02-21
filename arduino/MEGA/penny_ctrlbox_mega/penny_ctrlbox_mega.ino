@@ -16,11 +16,20 @@
     - 1x Water flood sensor
     - 3 motor controllers with 2 motors each
   - Messages to ESP32:
-    - <WL1:##.##> - Water level 1 (in cm)
-    - <WL2:##.##> - Water level 2 (in cm)
-
+    - <WL:X:YY.YY> - Water level # (in cm)
+    - <TDS:XX.XX> - TDS (in ppm)
+    - <PH:XX.XX> - PH
+    - <SM:XX:YY.YY> - Soil moisture sensor - YY.YY (in %)
+    - <FV:Drainage bucket:1> - Drainage bucket is full / <FV:Drainage bucket:0> Empty
+    - <PPD:XX:YYY> - Perastaltic Pump XX on for YYY ms (Dosing)
+    - <PPS:XX:YYY> - Perastaltic Pump XX set for YYY (Speed) PWM
   - TODO:
     - How to calculate water amounts with ultrasonic?
+    - Calibrate PH
+    - Calibrate TDS
+    - Calibrate soil moisture
+    - Calibrate water level
+    - Calibrate Dosing pumps all in one command?
 
   - To calibrate the scale:
     - Remove everything from the load cells. They should have abosolutely nothing resting on them. 
@@ -32,9 +41,6 @@
     - When you execute the "Save and exit" script in HA, it will save the calibaration value you've set, then tare the scale, so it will read 0.0 
       when you're finished. Since 1 liter of water has the same mass as 1 Kilogram, your scale will now show you how much water, in liters, is in the res.
 ***********************************************************************************************************************************************/
-//#include <DallasTemperature.h>
-//#include <Wire.h>
-#include <SoftwareSerial.h>
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 
@@ -93,8 +99,6 @@ int analogBuffer[SCOUNT]; // store the analog value in the array, read from ADC
 int analogBufferTemp[SCOUNT];
 int analogBufferIndex = 0,copyIndex = 0;
 float averageVoltage = 0,tdsValue = 0,temperature = 25;
-
-SoftwareSerial phSerial(PH_SENSOR_RX_PIN, PH_SENSOR_TX_PIN);
 
 // Serial receiving
 bool newData = false;
@@ -247,50 +251,15 @@ void loop() {
 
 }
 void checkPHSensor(){
-  snprintf(waterLevelStr, sizeof(waterLevelStr), "%.1f", waterLevel);
-  // print the water level measurement to the serial monitor
-  // Is it really cm?
-  Serial.print("Distance1: ");
-  Serial.print(distance);
-  Serial.print(" cm, Water level1: ");
-  Serial.print(waterLevelStr);
-  Serial.println(" cm");
-  
-  if (waterLevel < 0)
-  {
-    Serial3.print("<WL1:0.00>");
-  }
-  else
-  {
-    Serial3.print("<WL1:");
-    Serial3.print(waterLevelStr);
+  float currentPH = readPHSensor();
+  if (currentPH > 0)
+  {  
+    snprintf(currentPHStr, sizeof(currentPHStr), "%.1f", currentPH);
+    Serial3.print("<PH:");
+    Serial3.print(currentPHStr);
     Serial3.println('>');
-  }  
-  waterLvl1Millis = millis();
-}
-void checkWaterPH(){
-   while (phSerial.available() > 0) {
-    char c = phSerial.read();
-    if (c == '\r') {
-      String phString = phSerial.readStringUntil('\n');
-      float pHValue = phString.toFloat();
-      Serial.print("pH value: ");
-      Serial.print(pHValue, 2);
-
-      phSerial.write("T");
-      delay(1000);
-
-      while (phSerial.available() > 0) {
-        char d = phSerial.read();
-        if (d == '\r') {
-          String tempString = phSerial.readStringUntil('\n');
-          float tempValue = tempString.toFloat();
-          Serial.print(", Temperature: ");
-          Serial.println(tempValue, 2);
-        }
-      }
-    }
   }
+  waterPHMillis = millis();
 }
 void setPumpSpeeds(int pumpNumber, int pumpSpeed)
 { 
@@ -429,11 +398,13 @@ void checkDrainBucket()
   drainBucketStatus = digitalRead(PIN_FLOAT_VALVE);
   if (drainBucketStatus == HIGH)
   {
-    Serial3.println("<Drainage bucket full!>");
+    Serial.println("<Drainage bucket full!>");
+    Serial3.println("<FV:Drainage bucket:1>");
   }
   else
   {
-    Serial3.println("<Drainage Bucket OK>");
+    Serial.println("<Drainage Bucket OK>");
+    Serial3.println("<FV:Drainage Bucket:0>");
   }
   drainBucketMillis = millis();
 }
@@ -501,20 +472,6 @@ void processSerialData()
   char commandChar = receivedChars[0];
   switch (commandChar)
   {
-/*    case '9':                                                     // If the message from the ESP32 starts with a "9", it's related to pH.
-    {
-      channel = atoi(strtok(receivedChars, ":"));                 // Parse the string at each colon
-      cmd = strtok(NULL, ":");
-      I2C_call();                                                 // Send to I2C
-      break;
-    }
-    case '1':                                                     // If the message from the ESP32 starts with a "1", it's related to EC.
-    {
-      channel = atoi(strtok(receivedChars, ":"));
-      cmd = strtok(NULL, ":");
-      I2C_call();
-      break;
-    }*/
     case 'D':
     {
       //Dosing / PumpPower:
