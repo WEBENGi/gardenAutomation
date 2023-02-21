@@ -7,10 +7,21 @@
   - Anything printed to Serial(1) is just for debugging.
   - The ESP32 is responsible for relaying all data between this Mega and Home Assistant via MQTT.
   - The program uses millis() timing rather than delays to avoid blocking as much as possible. 
-  
-  
-  
-  
+
+  - Sensors/Modules Attached:
+    - 2x Ultrasonic distance sensors
+    - 1x TDS sensor
+    - 1x PH sensor
+    - 9-10x Soil moisture sensor
+    - 1x Water flood sensor
+    - 3 motor controllers with 2 motors each
+  - Messages to ESP32:
+    - <WL1:##.##> - Water level 1 (in cm)
+    - <WL2:##.##> - Water level 2 (in cm)
+
+  - TODO:
+    - How to calculate water amounts with ultrasonic?
+
   - To calibrate the scale:
     - Remove everything from the load cells. They should have abosolutely nothing resting on them. 
     - Initiate the "begin scale calibration" script from Home Assistant calibration page.
@@ -85,12 +96,6 @@ float averageVoltage = 0,tdsValue = 0,temperature = 25;
 
 SoftwareSerial phSerial(PH_SENSOR_RX_PIN, PH_SENSOR_TX_PIN);
 
-/*// Atlas
-int channel;                                    // For channel switching - 0-7 serial, 8-127 I2C addresses
-char* cmd;
-bool i2cCallComplete;                           // This flag allows void loop() to keep running quickly without waiting for i2c data to arrive
-char sensorData[30];                            // A 30 byte character array to hold incoming data from the sensors
-*/
 // Serial receiving
 bool newData = false;
 const byte numChars = 100;
@@ -99,8 +104,8 @@ char receivedChars[numChars];
 // Flood detection
 char waterSensorNames[][22]                     // For describing where flood sensor was triggered
 {
-  {"front of humidifier!"},
-  // {"under res 2!"},
+ // {"front of humidifier!"},
+  {"back wall under box"},
   // {"in tent!"},
   //  {"in overflow!"}
 };
@@ -112,14 +117,12 @@ unsigned long dosingPumpPeriod[6];                   // Array of modifiable "pum
 
 unsigned long currentMillis;                    // Snapshot of current time
 unsigned long floodStartMillis;                 // Timer to check for flood
-unsigned long waterLvlMillis;                   // Timer to check nute res water level with weigh sensors
 unsigned long soilWaterLvlMillis;                   // Timer to check water soil levels
 unsigned long drainBucketMillis;                 // Timer to check drain basin float sensor
 unsigned long waterLvl1Millis;
 unsigned long waterLvl2Millis;
 unsigned long waterTDSMillis;
 unsigned long waterPHMillis;
-//unsigned long soilWaterLvlMillis;
 
 const unsigned long waterLvl1Period = 1000;      // Time in milliseconds between checking nute res water level
 const unsigned long waterLvl2Period = 1000;      // Time in milliseconds between checking nute res water level
@@ -129,21 +132,12 @@ const unsigned long soilWaterLvlPeriod = 1000;  // Time between soil water level
 const unsigned long waterTDSPeriod = 1000;  // Time between soil water level checking
 const unsigned long waterPHPeriod = 1000;  // Time between soil water level checking
 
-//unsigned long scaleCalMillis;                   // Timer to read the scale when calibrating it
-//unsigned long i2cWaitMillis;                    // Timer to wait for i2c data after call
-//unsigned long i2cWaitPeriod;                    // Time to wait for sensor data after I2C_call function
-//const unsigned long drainageCheckPeriod = 2000; // Time between checking drain bucket float sensor
-//const unsigned long scaleCalPeriod = 500;       // Time between reading HX711 sensor when calibrating
-
-/*// Atlas
-boolean pHCalledLast = false;                       // Tracks whether pH was polled last or EC.F
-boolean stopReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
-*/
 /*
 const int pHpin = A0;    // Analog input pin for pH sensor
 const float pHoffset = 0.00;    // pH offset calibration value
 const float pHslope = 1.00;     // pH slope calibration value
 */
+
 const int soilWaterSensorPin[9] 
 {
   ANALOG_PIN_SOIL_01, ANALOG_PIN_SOIL_02, ANALOG_PIN_SOIL_03, ANALOG_PIN_SOIL_04, ANALOG_PIN_SOIL_05, ANALOG_PIN_SOIL_06, ANALOG_PIN_SOIL_07, ANALOG_PIN_SOIL_08, ANALOG_PIN_SOIL_09
@@ -154,14 +148,12 @@ const int soilWaterSensorPin[9]
 const int dosingPumpEnablePin[6]
 {
   PIN_MC_1_IO1, PIN_MC_1_IO3, PIN_MC_1_IO1, PIN_MC_2_IO3, PIN_MC_3_IO1, PIN_MC_3_IO3
-  //  19, 33, 26, 14, 13, 23
 };
 
 // GPIO Pin numbers for PWM
 const int dosingPumpPWMpin[6]
 {
   PIN_MC_1_ENA, PIN_MC_1_ENB, PIN_MC_2_ENA, PIN_MC_2_ENB, PIN_MC_3_ENA, PIN_MC_3_ENB
-  // 18, 32, 25, 27, 12, 5
 };
 
 // PWM properties
@@ -178,6 +170,7 @@ void setup() {
   Serial3.begin(baudRate);
   Serial.begin(baudRate);
 
+  //Why is this the only one starting 0?
   floodStartMillis = 0;
 
   pinMode(PIN_US_DISTANCE_1_TRIG, OUTPUT);
@@ -192,11 +185,12 @@ void setup() {
     pinMode(dosingPumpEnablePin[i], OUTPUT);
   }
 
-  /*    for (int i = 0; i < NUM_ELEMENTS(dosingPumpPWMpin); i++)   // The condition in for loop is -1 because the noctua fan pwm channel is the last one and we will update it separately below
-    {
-      ledcSetup(pwmChannel[i], freq, resolution);
-      ledcAttachPin(dosingPumpPWMpin[i], pwmChannel[i]);
-    }*/
+  // The condition in for loop is -1 because the noctua fan pwm channel is the last one and we will update it separately below
+  for (int i = 0; i < NUM_ELEMENTS(dosingPumpPWMpin); i++)   
+  {
+    ledcSetup(pwmChannel[i], freq, resolution);
+    ledcAttachPin(dosingPumpPWMpin[i], pwmChannel[i]);
+  }
 
   Serial.println("Setup complete, starting loop!");
 }
@@ -242,6 +236,37 @@ void loop() {
   {
     readPHSensor();
   }
+
+  for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
+  {
+      if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
+      {
+          setPumpPower(i, 0);                                                                               // Shut it off by setting timer to 0.
+      }
+  }
+
+}
+void checkPHSensor(){
+  snprintf(waterLevelStr, sizeof(waterLevelStr), "%.1f", waterLevel);
+  // print the water level measurement to the serial monitor
+  // Is it really cm?
+  Serial.print("Distance1: ");
+  Serial.print(distance);
+  Serial.print(" cm, Water level1: ");
+  Serial.print(waterLevelStr);
+  Serial.println(" cm");
+  
+  if (waterLevel < 0)
+  {
+    Serial3.print("<WL1:0.00>");
+  }
+  else
+  {
+    Serial3.print("<WL1:");
+    Serial3.print(waterLevelStr);
+    Serial3.println('>');
+  }  
+  waterLvl1Millis = millis();
 }
 void checkWaterPH(){
    while (phSerial.available() > 0) {
@@ -267,31 +292,6 @@ void checkWaterPH(){
     }
   }
 }
-/*void loop2() {
-    long duration, distance;
-
-    digitalWrite(TRIGGER_PIN, LOW);
-    delayMicroseconds(2);
-    digitalWrite(TRIGGER_PIN, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(TRIGGER_PIN, LOW);
-
-    duration = pulseIn(ECHO_PIN, HIGH);
-    distance = (duration / 2) / 29.1;
-
-    Serial.print(distance);
-    Serial.println(" cm");
-    delay(500);
-
-    for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
-    {
-        if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
-        {
-            setPumpPower(i, 0);                                                                               // Shut it off by setting timer to 0.
-        }
-    }
-  }
-*/
 void setPumpSpeeds(int pumpNumber, int pumpSpeed)
 { 
   analogWrite(pwmChannel[pumpNumber], pumpSpeed);
@@ -317,6 +317,7 @@ void setPumpPower(int pumpNumber, long onTime)
 }
 
 //Read Ultrasonic sensors and send to ESP32
+// Who handles the threshold of what we are watching for? HA or ESP32?
 void checkWaterLvl1()
 {
   double duration, distance, waterLevel;
@@ -337,31 +338,28 @@ void checkWaterLvl1()
 
   snprintf(waterLevelStr, sizeof(waterLevelStr), "%.1f", waterLevel);
   // print the water level measurement to the serial monitor
-  /*
-  Serial.print("Distance: ");
+  // Is it really cm?
+  Serial.print("Distance1: ");
   Serial.print(distance);
-  Serial.print(" cm, Water level: ");
+  Serial.print(" cm, Water level1: ");
   Serial.print(waterLevelStr);
   Serial.println(" cm");
-  */
-  if (waterLevelStr[0] != '-')
+  
+  if (waterLevel < 0)
   {
-//    client.publish("feedback/waterLevel1", waterLevel);
-  }
-  if (liters < 0)
-  {
-    Serial3.print("<WL:0.00>");
+    Serial3.print("<WL1:0.00>");
   }
   else
   {
-    Serial3.print("<WL:");
-    Serial3.print(liters);
+    Serial3.print("<WL1:");
+    Serial3.print(waterLevelStr);
     Serial3.println('>');
   }  
   waterLvl1Millis = millis();
 }
 
-//Read Ultrasonic sensors and send to ESP
+//Read Ultrasonic sensors and send to ESP32
+// Who handles the threshold of what we are watching for? HA or ESP32?
 void checkWaterLvl2()
 {
   double duration, distance, waterLevel;
@@ -375,32 +373,36 @@ void checkWaterLvl2()
   digitalWrite(PIN_US_DISTANCE_2_TRIG, LOW);
   duration = pulseIn(PIN_US_DISTANCE_2_ECHO, HIGH);
   distance = duration * 0.034 / 2;
-//  f = distance;
+  // f = distance;
   
   // Calculate the water level based on the distance and offset
   waterLevel = distance - waterLevel2Offset;
   
   snprintf(waterLevelStr, sizeof(waterLevelStr), "%.1f", waterLevel);
   // print the water level measurement to the serial monitor
-  /*
-  Serial.print("Distance: ");
+  // Is it really cm?
+  Serial.print("Distance2: ");
   Serial.print(distance);
-  Serial.print(" cm, Water level: ");
+  Serial.print(" cm, Water level2: ");
   Serial.print(waterLevelStr);
   Serial.println(" cm");
-  */
-  
-  if (waterLevelStr[0] != '-')
+  if (waterLevel < 0)
   {
-    //client.publish("feedback/waterLevel2", waterLevel);
+    Serial3.print("<WL2:0.00>");
   }
+  else
+  {
+    Serial3.print("<WL2:");
+    Serial3.print(waterLevelStr);
+    Serial3.println('>');
+  }  
   waterLvl2Millis = millis();
 }
 float readPHSensor() {
   // set up the pins
-  int toPin = A0;  // analog input pin for To
-  int doPin = A1;  // analog input pin for Do
-  int poPin = 2;   // digital output pin for Po
+  int toPin = PIN_PH_TO_SENSOR;  // analog input pin for To
+  int doPin = PIN_PH_DO_SENSOR;  // analog input pin for Do
+  int poPin = PIN_PH_PO_SENSOR;   // digital output pin for Po
 
   // set Po pin to output mode and turn on the power
   pinMode(poPin, OUTPUT);
@@ -452,7 +454,9 @@ void checkForFlood()                                                  // I'm doi
   }
   floodStartMillis = millis();
 }
-void recvWithStartEndMarkers()                                       // Check for serial data from ESP32. Thanks to Robin2 for the serial input basics thread on the Arduino forums.
+
+// Check for serial data from ESP32. 
+void recvWithStartEndMarkers()                                       
 {
   static bool recvInProgress = false;
   static byte ndx = 0;
@@ -549,6 +553,18 @@ void processSerialData()
   newData = false;
 }
 void checkSoilWaterLvl() {
+  int numSensors = NUM_ELEMENTS(soilWaterSensorPin);
+  readSoilCapacitanceSensors(soilWaterSensorPin, numSensors);
+}
+void readSoilCapacitanceSensors(int sensorPins[], int numSensors) {
+  for (int i = 0; i < numSensors; i++) {
+    int sensorValue = analogRead(sensorPins[i]);
+    Serial.print("Sensor ");
+    Serial.print(i+1);
+    Serial.print(" reading: ");
+    Serial.println(sensorValue);
+    delay(100);
+  }
 }
 void checkTDSSensor(){
   static unsigned long analogSampleTimepoint = millis();
@@ -596,30 +612,3 @@ float getMedianNum(int* tdsValues, int numValues) {
 
   return medianValue;
 }
-/*int getMedianNum2(int bArray[], int iFilterLen)
-{
-  int bTab[iFilterLen];
-  for (byte i = 0; i<iFilterLen; i++)
-  {
-    bTab[i] = bArray[i];
-    int i, j, bTemp;
-    for (j = 0; j < iFilterLen - 1; j++)
-    {
-      for (i = 0; i < iFilterLen - j - 1; i++)
-      {
-        if (bTab[i] > bTab[i + 1])
-        {
-          bTemp = bTab[i];
-          bTab[i] = bTab[i + 1];
-          bTab[i + 1] = bTemp;
-        }
-      }
-    }
-  }
-  if ((iFilterLen & 1) > 0){
-    bTemp = bTab[(iFilterLen - 1) / 2];
-  }else{
-    bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;
-  }
-  return bTemp;
-}*/
