@@ -1,4 +1,27 @@
-#include <DallasTemperature.h>
+/***********************************************************************************************************************************************
+  Notes:
+  ----------------------------------------------------------------------------------------------------------------------------------------------
+  - The ESP32 will poll the sensors at a preset interval, alternating between them. It will send a temperature compensation value based on the 
+    temperature of the mixing res solution at a preset interval as well.
+  - Data is passed betweeen the ESP32 and Mega via the Mega's Serial3 pins. All messages between them start with the '<' character and end with a '>'.
+  - Anything printed to Serial(1) is just for debugging.
+  - The ESP32 is responsible for relaying all data between this Mega and Home Assistant via MQTT.
+  - The program uses millis() timing rather than delays to avoid blocking as much as possible. 
+  
+  
+  
+  
+  - To calibrate the scale:
+    - Remove everything from the load cells. They should have abosolutely nothing resting on them. 
+    - Initiate the "begin scale calibration" script from Home Assistant calibration page.
+    - Follow instructions that are sent over MQTT.
+    - You will be measuring in Kg, not lbs, so be sure to convert whatever you're measuring to Kg.
+    - Adjust the calibration factor using the input on the Home Assistant calibration page.
+    - When the scale readout matches the weight you're calibrating with, remove the calibration weight.
+    - When you execute the "Save and exit" script in HA, it will save the calibaration value you've set, then tare the scale, so it will read 0.0 
+      when you're finished. Since 1 liter of water has the same mass as 1 Kilogram, your scale will now show you how much water, in liters, is in the res.
+***********************************************************************************************************************************************/
+//#include <DallasTemperature.h>
 //#include <Wire.h>
 #include <SoftwareSerial.h>
 
@@ -9,9 +32,7 @@
 #define WATER_LEAK_SENSOR_1 A14 // should this be analog?
 
 #define PIN_MC_1_ENA 31
-#define PIN_MC_1_ENB 32
-#define PIN_MC_1_IO1 30
-#define PIN_MC_1_IO3 33
+#define PIN_MC_1_ENB 32 
 #define PIN_MC_2_ENA 51
 #define PIN_MC_2_ENB 52
 #define PIN_MC_2_IO1 50
@@ -154,14 +175,15 @@ const int pwmChannel[6]                       // This array has 7 due to 6 Dosin
 int pumpSpeeds[6];
 
 void setup() {
+  Serial3.begin(baudRate);
+  Serial.begin(baudRate);
+
+  floodStartMillis = 0;
+
   pinMode(PIN_US_DISTANCE_1_TRIG, OUTPUT);
   pinMode(PIN_US_DISTANCE_1_ECHO, INPUT);
   pinMode(PIN_US_DISTANCE_2_TRIG, OUTPUT);
   pinMode(PIN_US_DISTANCE_2_ECHO, INPUT);
-  Serial3.begin(baudRate);
-  Serial.begin(baudRate);
- // Wire.begin();
-  floodStartMillis = 0;
   pinMode(PIN_FLOAT_VALVE, INPUT_PULLUP);
   pinMode(PIN_TDS_SENSOR, INPUT);
 
@@ -214,7 +236,7 @@ void loop() {
 
   if (currentMillis - waterTDSMillis >= waterTDSPeriod)
   {
-    checkWaterTDS();
+    checkTDSSensor();
   }
   if (currentMillis - waterPHMillis >= waterPHPeriod)
   {
@@ -294,27 +316,7 @@ void setPumpPower(int pumpNumber, long onTime)
 //  client.publish("feedback/dosing", buff);                        // Send feedback (<PUMP#>:<STATE>)
 }
 
-
-/*
-  void checkWaterLvl()
-  {
-  float liters = (scale.get_units());
-  if (liters < 0)
-  {
-    Serial3.print("<WL:0.00>");
-  }
-  else
-  {
-    Serial3.print("<WL:");
-    Serial3.print(liters);
-    Serial3.println('>');
-
-  }
-
-  waterLvlMillis = millis();
-  }
-*/
-//Read Ultrasonic sensors  and publish to MQTT
+//Read Ultrasonic sensors and send to ESP32
 void checkWaterLvl1()
 {
   double duration, distance, waterLevel;
@@ -346,10 +348,20 @@ void checkWaterLvl1()
   {
 //    client.publish("feedback/waterLevel1", waterLevel);
   }
+  if (liters < 0)
+  {
+    Serial3.print("<WL:0.00>");
+  }
+  else
+  {
+    Serial3.print("<WL:");
+    Serial3.print(liters);
+    Serial3.println('>');
+  }  
   waterLvl1Millis = millis();
 }
 
-//Read Ultrasonic sensors  and publish to MQTT
+//Read Ultrasonic sensors and send to ESP
 void checkWaterLvl2()
 {
   double duration, distance, waterLevel;
@@ -543,7 +555,7 @@ void checkTDSSensor(){
   if(millis()-analogSampleTimepoint > 40U) //every 40 milliseconds,read the analog value from the ADC
   {
     analogSampleTimepoint = millis();
-    analogBuffer[analogBufferIndex] = analogRead(TdsSensorPin); //read the analog value and store into the buffer
+    analogBuffer[analogBufferIndex] = analogRead(PIN_TDS_SENSOR); //read the analog value and store into the buffer
     analogBufferIndex++;
     if(analogBufferIndex == SCOUNT) { analogBufferIndex = 0; }
   }
@@ -584,7 +596,7 @@ float getMedianNum(int* tdsValues, int numValues) {
 
   return medianValue;
 }
-int getMedianNum2(int bArray[], int iFilterLen)
+/*int getMedianNum2(int bArray[], int iFilterLen)
 {
   int bTab[iFilterLen];
   for (byte i = 0; i<iFilterLen; i++)
@@ -610,4 +622,4 @@ int getMedianNum2(int bArray[], int iFilterLen)
     bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;
   }
   return bTemp;
-}
+}*/

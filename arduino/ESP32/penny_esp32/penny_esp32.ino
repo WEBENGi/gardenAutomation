@@ -1,3 +1,22 @@
+/****************************************************************************************************************************************************************
+
+  Notes:
+  ----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 
+  - The ESP32 is responsible for relaying all data between the Mega and Home Assistant via MQTT, since the Mega has no WiFi capabilities. 
+    - client(forpublish) for WIFI+MQTT (connect to WIFI+ MQTT / Home Assistant)
+
+  - All references to Serial are for printing to console only. Serial1 is the actual wired connection to the Mega in the control box.
+
+  - For my pumps, flow rates are as follows: 300ms "on" time = 1mL, 500ms = 1.5mL, 1000ms = 3.25mL, 1500ms = 5mL, 2000ms = 6.75mL, 2500ms = 8.5mL, 3000ms = 10mL.
+    - Voltage at V+/V- terminals on 12V PSU was 13.045V when pump flow rates were measured.
+    - Starting PWM values were: phDownSpeed = 210, calMagSpeed = 204, microSpeed = 211, bloomSpeed = 206, growSpeed = 205, phUpSpeed = 210, noctuaFanSpeed = 125.
+  - Dosing pump speeds are set by Home Assistant when the ESP32 connects via MQTT.
+
+  - The ESP32 will send serial commands to the Mega to poll the Atlas Scientific sensors at a preset interval (atlasPeriod), alternating between them. It will send
+    a temperature compensation value for the AS sensors based on the measured temperature of the mixing res solution at a preset interval as well (tempCompPeriod).
+******************************************************************************************************************************************************************/
+
 #include <OneWire.h>
 #include <Wire.h>
 #include <WiFi.h>
@@ -5,7 +24,6 @@
 #include <Adafruit_BME280.h>
 #include <PubSubClient.h>
 #include <DallasTemperature.h>
-// #include "driver/ledc.h"
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 #define PIN_RELAY8_01 17 
@@ -46,7 +64,7 @@ const int resolution = 8;
 #define PIN_PWM_FAN	34 
 
 #define ONE_WIRE_BUS 32 // PIN_WATER_TEMP_SENSOR
-#define BUILTIN_LED 2
+//#define BUILTIN_LED 2
 #define SEALEVELPRESSURE_HPA (1013.25) // set sea level pressure to 1013.25 hPa
 Adafruit_BME280 bme;
 OneWire oneWire(ONE_WIRE_BUS);
@@ -78,7 +96,7 @@ char receivedChars[numChars];
 boolean newData = false;                            //Is there new data coming in over the serial port from the Arduino Mega?
 
 // Atlas
-boolean pHCalledLast = false;                       // Tracks whether pH was polled last or EC.
+//boolean pHCalledLast = false;                       // Tracks whether pH was polled last or EC.
 boolean stopReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
 
 const int pwmNoctuaFanPin = 34;//15;
@@ -86,21 +104,21 @@ const int pwmNOCTUA = 125;                          // This is the PWM rate for 
 
 void setup_wifi()
 {
-    delay(10);
-    // We start by connecting to a WiFi network
-    Serial.println();
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("");
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
 }
 
 void callback(char* topic, byte* payload, unsigned int length)
@@ -113,28 +131,28 @@ void callback(char* topic, byte* payload, unsigned int length)
 
     if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
     {
-        /*Serial1.print("<Relay:");               // Print this command to the Mega since it handles the relays.
-        Serial1.print(payloadStr);
-        Serial1.println('>');*/
-        
-         int boardNumber;
-          int relayNumber;
-          int relayPower;
-          char* strtokIndx;
-          char buff[20];
+      /*Serial1.print("<Relay:");               // Print this command to the Mega since it handles the relays.
+      Serial1.print(payloadStr);
+      Serial1.println('>');*/
+      
+      int boardNumber;
+      int relayNumber;
+      int relayPower;
+      char* strtokIndx;
+      char buff[20];
 
-          strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character
-          strtokIndx = strtok(NULL, ":");                             // Get the board number
-          boardNumber = atoi(strtokIndx);
-          strtokIndx = strtok(NULL, ":");                             // Get the relay number
-          relayNumber = atoi(strtokIndx);
-          strtokIndx = strtok(NULL, ":");                             // Get the relay power state
-          relayPower = atoi(strtokIndx);
+      strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character
+      strtokIndx = strtok(NULL, ":");                             // Get the board number
+      boardNumber = atoi(strtokIndx);
+      strtokIndx = strtok(NULL, ":");                             // Get the relay number
+      relayNumber = atoi(strtokIndx);
+      strtokIndx = strtok(NULL, ":");                             // Get the relay power state
+      relayPower = atoi(strtokIndx);
 
-          triggerRelay(boardNumber, relayNumber, relayPower);
+      triggerRelay(boardNumber, relayNumber, relayPower);
 
-          sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
-          Serial.println(buff);
+      sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
+      Serial.println(buff);
     }
     // CALLBACK: Dosing
     if (strcmp(topic, "control/dosing") == 0)   // Incoming message format will be <PUMP#>:<ONTIME>. ONTIME is in milliseconds.
@@ -283,7 +301,7 @@ void reconnect()
 
 void setup()
 {   
-    char buff[60];
+    //char buff[60];
     Serial.begin(115200);
     Serial1.begin(115200);
     Serial.read();
@@ -304,9 +322,9 @@ void setup()
     ledcSetup(PIN_PWM_FAN, freq, resolution);
     ledcAttachPin(PIN_PWM_FAN, 1);///pwmChannel[6]);
     ledcWrite(1,125);//pwmChannel[NOCTUA], 125);
-    for (int i = 0; i <= 2; i++)
+    for (unsigned int i = 0; i < 2; i++)
     {
-      for (unsigned int j = 0; j <= NUM_ELEMENTS(relayPins[i]); j++)
+      for (unsigned int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
       {
         pinMode(relayPins[i][j], OUTPUT);
         digitalWrite(relayPins[i][j], HIGH);
@@ -328,7 +346,7 @@ void loop()                                                                     
         getBoxTemp();
         tempCheckMillis = currentMillis;
     }
-
+/*
     if ((currentMillis - atlasMillis > atlasPeriod) && (stopReadings == false))         // Is it time to read the EZO circuits?
     {
         if (currentMillis - tempCompMillis > tempCompPeriod)                              // Is it time to compensate for temperature?
@@ -354,7 +372,7 @@ void loop()                                                                     
             pHCalledLast = false;
             atlasMillis = millis();
         }
-    }
+    }*/
 
     recvWithStartEndMarkers();                                            // Gather data sent from Mega over serial
     processSerialData();
@@ -487,46 +505,46 @@ void getWaterTemp()
     snprintf(waterTemp, sizeof(waterTemp), "%.1f", f);
     if (waterTemp[0] != '-')
     {
-        client.publish("feedback/waterTemp", waterTemp);
+      client.publish("feedback/waterTemp", waterTemp);
     }
 }
 
 //Read BME280 sensor and publish to MQTT
 void getBoxTemp()
 {
-    dtostrf(bme.readTemperature(), 3, 1, bmeBuffer);
-    client.publish("feedback/boxTemp", bmeBuffer);
+  dtostrf(bme.readTemperature(), 3, 1, bmeBuffer);
+  client.publish("feedback/boxTemp", bmeBuffer);
 }
 
 void getBoxHumidity()
 {
-    dtostrf(bme.readHumidity(), 3, 1, bmeBuffer);
-    client.publish("feedback/boxHumidity", bmeBuffer);
+  dtostrf(bme.readHumidity(), 3, 1, bmeBuffer);
+  client.publish("feedback/boxHumidity", bmeBuffer);
 }
 
 void getBoxPressure()
 {
-    dtostrf(bme.readPressure() / 100.0F, 3, 1, bmeBuffer);
-    client.publish("feedback/boxPressure", bmeBuffer);
+  dtostrf(bme.readPressure() / 100.0F, 3, 1, bmeBuffer);
+  client.publish("feedback/boxPressure", bmeBuffer);
 }
 void getWaterLevel()
 {
-    dtostrf(bme.readAltitude(SEALEVELPRESSURE_HPA), 3, 1, bmeBuffer);
-    client.publish("feedback/waterLevel", bmeBuffer);
+  dtostrf(bme.readAltitude(SEALEVELPRESSURE_HPA), 3, 1, bmeBuffer);
+  client.publish("feedback/waterLevel", bmeBuffer);
 }
 void triggerRelay(int boardNumber, int relayNumber, int relayTrigger)
 {
-    char buff[50];
-    sprintf(buff, "Triggering board#:%d, relay#:%d, state: %d",boardNumber,relayNumber,relayTrigger);
-    Serial.println(buff);
-    if (relayTrigger == 1)
-    {
-      digitalWrite(relayPins[boardNumber][relayNumber], LOW); // Turn relay ON
-    }
-    else if (relayTrigger == 0)
-    {
-      digitalWrite(relayPins[boardNumber][relayNumber], HIGH); // Turn relay OFF
-    }
+  char buff[50];
+  sprintf(buff, "Triggering board#:%d, relay#:%d, state: %d",boardNumber,relayNumber,relayTrigger);
+  Serial.println(buff);
+  if (relayTrigger == 1)
+  {
+    digitalWrite(relayPins[boardNumber][relayNumber], LOW); // Turn relay ON
+  }
+  else if (relayTrigger == 0)
+  {
+    digitalWrite(relayPins[boardNumber][relayNumber], HIGH); // Turn relay OFF
+  }
 }
 /*
  *       case 'R':                                                     // If message starts with "R", it's for relays. Message format is "Relay:<BOARD#>:<RELAY#>:<STATUS>". Example: "Relay:0:4:1"
