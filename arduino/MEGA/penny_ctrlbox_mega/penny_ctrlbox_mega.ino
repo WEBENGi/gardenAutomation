@@ -218,13 +218,8 @@ void loop() {
   }
   if (currentMillis - waterPHMillis >= waterPHPeriod)
   {
-    checkWaterPH();
+    readPHSensor();
   }
-
-  /*if ((currentMillis - i2cWaitMillis >= i2cWaitPeriod) && (i2cCallComplete == true))
-    {
-      parseI2Cdata();
-    } */
 }
 void checkWaterPH(){
    while (phSerial.available() > 0) {
@@ -299,74 +294,7 @@ void setPumpPower(int pumpNumber, long onTime)
 //  client.publish("feedback/dosing", buff);                        // Send feedback (<PUMP#>:<STATE>)
 }
 
-/*void I2C_call()                                                     // Function to parse and call I2C commands.
-{
-  memset(sensorData, 0, sizeof(sensorData));                        // Clear sensorData array;
 
-  if (cmd[0] == 'C' || cmd[0] == 'R')
-  {
-    i2cWaitPeriod = 1400;                                           // If a command has been sent to calibrate or take a reading we wait 1400ms so that the circuit has time to take the reading.
-  }
-  else
-  {
-    i2cWaitPeriod = 300;                                            // If any other command has been sent we wait only 300ms.
-  }
-
-  Wire.beginTransmission(channel);                                  // cCall the circuit by its ID number.
-  Wire.write(cmd);                                                  // Transmit the command that was sent through the serial port.
-  Wire.endTransmission();                                           // End the I2C data transmission.
-  i2cWaitMillis = millis();
-  i2cCallComplete = true;
-}
-
-void parseI2Cdata()
-{
-  byte code = 254;                                                  // Used to hold the I2C response code.
-  byte inChar = 0;                                                  // Used as a 1 byte buffer to store in bound bytes from the I2C Circuit.
-  byte sensorBytesReceived = 0;                                     // We need to know how many characters bytes have been received
-
-  while (code == 254)                                               // In case the command takes longer to process, we keep looping here until we get a success or an error
-  {
-    Wire.requestFrom(channel, 48, 1);                               // Call the circuit and request 48 bytes (this is more then we need).
-    code = Wire.read();
-    while (Wire.available())                                        // Are there bytes to receive?
-    {
-      inChar = Wire.read();                                         // Receive a byte.
-
-      if (inChar == 0)                                              // If we see that we have been sent a null command.
-      {
-        Wire.endTransmission();                                     // End the I2C data transmission.
-        break;
-      }
-      else
-      {
-        sensorData[sensorBytesReceived] = inChar;                   // Load this byte into our array.
-        sensorBytesReceived++;
-      }
-    }
-
-    switch (code)
-    {
-      case 1:
-        {
-          if ((channel == 99) && (cmd[0] != 'T'))                   // Print the sensor data for pH to console and to ESP32 if it's a normal reading
-          {
-            char buff[20];
-            sprintf(buff, "<PH:%s>", sensorData);
-            Serial3.println(buff);
-          }
-          else if ((channel == 100) && (cmd[0] != 'T'))                // Print the sensor data for EC to console and to ESP32 if it's a normal reading
-          {
-            char buff[20];
-            sprintf(buff, "<EC:%s>", sensorData);
-            Serial3.println(buff);
-          }
-          break;
-        }
-    }
-  }
-  i2cCallComplete = false;
-}*/
 /*
   void checkWaterLvl()
   {
@@ -456,20 +384,30 @@ void checkWaterLvl2()
   }
   waterLvl2Millis = millis();
 }
-void checkPHLevel(){
-  float pHraw, pHval;
-  
-  // Read the raw value from the pH sensor
-  pHraw = analogRead(pHpin);
-  
-  // Convert the raw value to a pH value using the calibration values
-  pHval = (pHraw - 512) * pHslope + pHoffset;
-  
-  // Output the pH value to the serial monitor
-  Serial.print("pH: ");
-  Serial.println(pHval, 2);   // Print pH value with 2 decimal places
-  
-  delay(1000);    // Wait for 1 second before reading again
+float readPHSensor() {
+  // set up the pins
+  int toPin = A0;  // analog input pin for To
+  int doPin = A1;  // analog input pin for Do
+  int poPin = 2;   // digital output pin for Po
+
+  // set Po pin to output mode and turn on the power
+  pinMode(poPin, OUTPUT);
+  digitalWrite(poPin, HIGH);
+
+  // wait for the sensor to stabilize
+  delay(1000);
+
+  // read the voltage across the To and Do pins
+  float toVoltage = analogRead(toPin) * (5.0 / 1023.0);
+  float doVoltage = analogRead(doPin) * (5.0 / 1023.0);
+
+  // calculate the pH value
+  float slope = 3.5;
+  float intercept = 1.0;
+  float ph = (slope * (doVoltage / toVoltage)) + intercept;
+
+  // return the pH value
+  return ph;
 }
 void checkDrainBucket()
 {
@@ -542,98 +480,61 @@ void recvWithStartEndMarkers()                                       // Check fo
 }
 void processSerialData()
 {
-  if (newData == true)
+  if (newData != true){return;}
+  
+  char commandChar = receivedChars[0];
+  switch (commandChar)
   {
-    char commandChar = receivedChars[0];
-    switch (commandChar)
+/*    case '9':                                                     // If the message from the ESP32 starts with a "9", it's related to pH.
     {
-      case '9':                                                     // If the message from the ESP32 starts with a "9", it's related to pH.
-        {
-          channel = atoi(strtok(receivedChars, ":"));                 // Parse the string at each colon
-          cmd = strtok(NULL, ":");
-          I2C_call();                                                 // Send to I2C
-          break;
-        }
-
-      case '1':                                                     // If the message from the ESP32 starts with a "1", it's related to EC.
-        {
-          channel = atoi(strtok(receivedChars, ":"));
-          cmd = strtok(NULL, ":");
-          I2C_call();
-          break;
-        }
-
-      case 'D':
-        {
-          //Dosing / PumpPower:
-          int pumpNumber;
-          long onTime;
-          char* strtokIndx;
-
-          strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'D' character
-
-          strtokIndx = strtok(strtokIndx, ":");     // Get the pump number
-          pumpNumber = atoi(strtokIndx);
-          strtokIndx = strtok(NULL, ":");
-          onTime = atol(strtokIndx);              // Get the on time
-
-          Serial.println(pumpNumber);
-          Serial.println(onTime);
-
-          setPumpPower(pumpNumber, onTime);
-          break;
-        }
-      case 'P':
-        {
-          int pumpNumber;
-          int pwmVal;
-          char* strtokIndx;
-
-          strtokIndx = strtok(receivedChars, ":");    // Get the pump number
-          pumpNumber = atoi(strtokIndx);
-          strtokIndx = strtok(NULL, ",");
-          pwmVal = atoi(strtokIndx);              // Get the PWM val
-
-          setPumpSpeeds(pumpNumber, pwmVal);
-          break;
-        }
-
-/*      case 'H':                                                     // If message starts with the letter "H", it's for the weigh scale.
-        {
-          char commandChar = receivedChars[7];                        // Message format will be "HX711: Begin", "HX711: Exit", or a calibration value like "-20000"
-          switch (commandChar)
-          {
-            case 'B':                                                 // Begin cal mode
-              {
-                beginCalMode();
-                break;
-              }
-            case 'E':                                                 // Exit cal mode
-              {
-                int cfAddress = 0;
-                int zfAddress = 4;
-                scaleCalMode = false;
-                EEPROM.put(cfAddress, mixingRes.calibrationFactor);
-                EEPROM.put(zfAddress, mixingRes.zeroFactor);
-                Serial3.print("<HX711: Calibration saved to EEPROM!>");
-                Serial.println(mixingRes.calibrationFactor);
-                Serial.println(mixingRes.zeroFactor);
-                scale.tare();                                           // Tare the scale. Before you save and exit, the reservoir and any equipment that sit in it should be on the sensor,
-                break;                                                  // however, the weights you use to calibrate it must be removed. Only the stuff that will be permanent should stay.
-              }
-            default:
-              {
-                char* strtokIndx;
-                strtokIndx = strtok(receivedChars, ":");                // Skip the first segment which is the "HX711:" part of the message
-                strtokIndx = strtok(NULL, ":");                         // Get the calibration factor
-                mixingRes.calibrationFactor = atol(strtokIndx);
-              }
-          }
-          break;
-        }*/
+      channel = atoi(strtok(receivedChars, ":"));                 // Parse the string at each colon
+      cmd = strtok(NULL, ":");
+      I2C_call();                                                 // Send to I2C
+      break;
     }
-    newData = false;
+    case '1':                                                     // If the message from the ESP32 starts with a "1", it's related to EC.
+    {
+      channel = atoi(strtok(receivedChars, ":"));
+      cmd = strtok(NULL, ":");
+      I2C_call();
+      break;
+    }*/
+    case 'D':
+    {
+      //Dosing / PumpPower:
+      int pumpNumber;
+      long onTime;
+      char* strtokIndx;
+
+      strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'D' character
+
+      strtokIndx = strtok(strtokIndx, ":");     // Get the pump number
+      pumpNumber = atoi(strtokIndx);
+      strtokIndx = strtok(NULL, ":");
+      onTime = atol(strtokIndx);              // Get the on time
+
+      Serial.println(pumpNumber);
+      Serial.println(onTime);
+
+      setPumpPower(pumpNumber, onTime);
+      break;
+    }
+    case 'P':
+    {
+      int pumpNumber;
+      int pwmVal;
+      char* strtokIndx;
+
+      strtokIndx = strtok(receivedChars, ":");    // Get the pump number
+      pumpNumber = atoi(strtokIndx);
+      strtokIndx = strtok(NULL, ",");
+      pwmVal = atoi(strtokIndx);              // Get the PWM val
+
+      setPumpSpeeds(pumpNumber, pwmVal);
+      break;
+    }
   }
+  newData = false;
 }
 void checkSoilWaterLvl() {
 }
@@ -656,9 +557,6 @@ void checkTDSSensor(){
       float compensationCoefficient=1.0+0.02*(temperature-25.0); //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
       float compensationVolatge=averageVoltage/compensationCoefficient; //temperature compensation
       tdsValue=(133.42*compensationVolatge*compensationVolatge*compensationVolatge - 255.86*compensationVolatge*compensationVolatge + 857.39*compensationVolatge)*0.5; //convert voltage value to tds value
-      //Serial.print("voltage:");
-      //Serial.print(averageVoltage,2);
-      //Serial.print("V ");
       Serial.print("TDS Value:");
       Serial.print(tdsValue,0);
       Serial.println("ppm");
@@ -706,10 +604,10 @@ int getMedianNum2(int bArray[], int iFilterLen)
       }
     }
   }
-  if ((iFilterLen & 1) > 0)
+  if ((iFilterLen & 1) > 0){
     bTemp = bTab[(iFilterLen - 1) / 2];
-  else
+  }else{
     bTemp = (bTab[iFilterLen / 2] + bTab[iFilterLen / 2 - 1]) / 2;
-
+  }
   return bTemp;
 }
