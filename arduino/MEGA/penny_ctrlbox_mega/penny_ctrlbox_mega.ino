@@ -1,5 +1,6 @@
 #include <DallasTemperature.h>
 //#include <Wire.h>
+#include <SoftwareSerial.h>
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 
@@ -38,6 +39,9 @@
 #define PIN_TDS_SENSOR A15
 #define PIN_FLOAT_VALVE 49
 
+#define PH_SENSOR_RX_PIN 2
+#define PH_SENSOR_TX_PIN 3
+
 #define PIN_US_DISTANCE_1_TRIG 16
 #define PIN_US_DISTANCE_1_ECHO 17
 #define PIN_US_DISTANCE_2_TRIG 18
@@ -58,12 +62,14 @@ int analogBufferTemp[SCOUNT];
 int analogBufferIndex = 0,copyIndex = 0;
 float averageVoltage = 0,tdsValue = 0,temperature = 25;
 
-// Atlas
+SoftwareSerial phSerial(PH_SENSOR_RX_PIN, PH_SENSOR_TX_PIN);
+
+/*// Atlas
 int channel;                                    // For channel switching - 0-7 serial, 8-127 I2C addresses
 char* cmd;
 bool i2cCallComplete;                           // This flag allows void loop() to keep running quickly without waiting for i2c data to arrive
 char sensorData[30];                            // A 30 byte character array to hold incoming data from the sensors
-
+*/
 // Serial receiving
 bool newData = false;
 const byte numChars = 100;
@@ -91,6 +97,7 @@ unsigned long drainBucketMillis;                 // Timer to check drain basin f
 unsigned long waterLvl1Millis;
 unsigned long waterLvl2Millis;
 unsigned long waterTDSMillis;
+unsigned long waterPHMillis;
 //unsigned long soilWaterLvlMillis;
 
 const unsigned long waterLvl1Period = 1000;      // Time in milliseconds between checking nute res water level
@@ -99,6 +106,7 @@ const unsigned long floodPeriod = 10000;        // Time between checking floor m
 const unsigned long drainBucketPeriod = 3000;    // Time between checking float sensor in drain basin in tent
 const unsigned long soilWaterLvlPeriod = 1000;  // Time between soil water level checking
 const unsigned long waterTDSPeriod = 1000;  // Time between soil water level checking
+const unsigned long waterPHPeriod = 1000;  // Time between soil water level checking
 
 //unsigned long scaleCalMillis;                   // Timer to read the scale when calibrating it
 //unsigned long i2cWaitMillis;                    // Timer to wait for i2c data after call
@@ -110,10 +118,11 @@ const unsigned long waterTDSPeriod = 1000;  // Time between soil water level che
 boolean pHCalledLast = false;                       // Tracks whether pH was polled last or EC.F
 boolean stopReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
 */
+/*
 const int pHpin = A0;    // Analog input pin for pH sensor
 const float pHoffset = 0.00;    // pH offset calibration value
 const float pHslope = 1.00;     // pH slope calibration value
-
+*/
 const int soilWaterSensorPin[9] 
 {
   ANALOG_PIN_SOIL_01, ANALOG_PIN_SOIL_02, ANALOG_PIN_SOIL_03, ANALOG_PIN_SOIL_04, ANALOG_PIN_SOIL_05, ANALOG_PIN_SOIL_06, ANALOG_PIN_SOIL_07, ANALOG_PIN_SOIL_08, ANALOG_PIN_SOIL_09
@@ -207,11 +216,39 @@ void loop() {
   {
     checkWaterTDS();
   }
+  if (currentMillis - waterPHMillis >= waterPHPeriod)
+  {
+    checkWaterPH();
+  }
 
   /*if ((currentMillis - i2cWaitMillis >= i2cWaitPeriod) && (i2cCallComplete == true))
     {
       parseI2Cdata();
     } */
+}
+void checkWaterPH(){
+   while (phSerial.available() > 0) {
+    char c = phSerial.read();
+    if (c == '\r') {
+      String phString = phSerial.readStringUntil('\n');
+      float pHValue = phString.toFloat();
+      Serial.print("pH value: ");
+      Serial.print(pHValue, 2);
+
+      phSerial.write("T");
+      delay(1000);
+
+      while (phSerial.available() > 0) {
+        char d = phSerial.read();
+        if (d == '\r') {
+          String tempString = phSerial.readStringUntil('\n');
+          float tempValue = tempString.toFloat();
+          Serial.print(", Temperature: ");
+          Serial.println(tempValue, 2);
+        }
+      }
+    }
+  }
 }
 /*void loop2() {
     long duration, distance;
