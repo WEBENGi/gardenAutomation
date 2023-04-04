@@ -46,9 +46,10 @@
     
     Messages expected from Home Assitant (Callbacks):
     - control/dosing - Dosing pump power
+    - control/relays - Relay power
     - calibrate/dosing - Dosing pump speed
-    - calibrate/PH - PH calibration
-    - calibrate/TDS - TDS calibration
+    - calibrate/ph - PH calibration
+    - calibrate/tds - TDS calibration
 
    TODO:
   ----------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -217,7 +218,7 @@ void callback(char* topic, byte* payload, unsigned int length)
   
   // CALLBACK: pH Calibration 
 
-    if (strcmp(topic, "calibrate/atlas_pH") == 0)           // pH cal values of 7.00, 4.00, and 10.00 are hard coded to match Atlas calibration solutions. Change these if you're using different solutions.
+    if (strcmp(topic, "calibrate/ph") == 0)           // pH cal values of 7.00, 4.00, and 10.00 are hard coded to match Atlas calibration solutions. Change these if you're using different solutions.
     {
         switch (payloadStr[0])                                  // Payload will be "mid", "low", or "high". Switching on first char to tell which it is.
         {
@@ -226,7 +227,7 @@ void callback(char* topic, byte* payload, unsigned int length)
                 stopReadings = true;
                 delay(2000);
                 Serial1.println("<99:Cal,mid,7.00>");
-                atlasMillis = millis();
+                phMillis = millis();
                 stopReadings = false;
                 break;
             }
@@ -235,7 +236,7 @@ void callback(char* topic, byte* payload, unsigned int length)
                 stopReadings = true;
                 delay(2000);
                 Serial1.println("<99:Cal,low,4.00>");
-                atlasMillis = millis();
+                phMillis = millis();
                 stopReadings = false;
                 break;
             }
@@ -246,7 +247,7 @@ void callback(char* topic, byte* payload, unsigned int length)
                 Serial1.println("<99:Cal,high,10.00>");
                 delay(2000);
                 Serial1.println("<99:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
-                atlasMillis = millis();
+                phMillis = millis();
                 stopReadings = false;
                 break;
             }
@@ -255,7 +256,7 @@ void callback(char* topic, byte* payload, unsigned int length)
 
     // CALLBACK: EC Calibration 
 
-    if (strcmp(topic, "calibrate/atlas_EC") == 0)           // EC cal values of 700 & 2000 are hard coded to match Atlas calibration solutions. Change these if you're using diff solutions.
+    if (strcmp(topic, "calibrate/tds") == 0)           // EC cal values of 700 & 2000 are hard coded to match Atlas calibration solutions. Change these if you're using diff solutions.
     {
         switch (payloadStr[0])                                   // Payload will be "dry", "low", or "high". Switching on first char to tell which it is.
         {
@@ -266,7 +267,7 @@ void callback(char* topic, byte* payload, unsigned int length)
                 delay(2000);
                 Serial1.println("<100:Cal,dry>");
                 delay(1000);
-                atlasMillis = millis();
+                tdsMillis = millis();
                 stopReadings = false;
                 break;
             }
@@ -276,7 +277,7 @@ void callback(char* topic, byte* payload, unsigned int length)
                 delay(2000);
                 Serial1.println("<100:Cal,low,700>");
                 delay(1000);
-                atlasMillis = millis();
+                tdsMillis = millis();
                 stopReadings = false;
                 break;
             }
@@ -287,7 +288,7 @@ void callback(char* topic, byte* payload, unsigned int length)
                 Serial1.println("<100:Cal,high,2000>");
                 delay(2000);
                 Serial1.println("<100:Cal,?>");              // Again, how many points of calibration?
-                atlasMillis = millis();
+                tdsMillis = millis();
                 stopReadings = false;
                 break;
             }
@@ -315,8 +316,8 @@ void reconnect()
 
                 client.subscribe("control/relays");
                 client.subscribe("control/dosing");
-                client.subscribe("calibrate/atlas_pH");
-                client.subscribe("calibrate/atlas_EC");
+                client.subscribe("calibrate/ph");
+                client.subscribe("calibrate/tds");
                 client.subscribe("calibrate/dosing");
                 client.subscribe("calibrate/scale");
             }
@@ -390,7 +391,7 @@ void loop()                                                                     
         getBoxTemp();
         tempCheckMillis = currentMillis;
     }
-/*
+
     if ((currentMillis - atlasMillis > atlasPeriod) && (stopReadings == false))         // Is it time to read the EZO circuits?
     {
         if (currentMillis - tempCompMillis > tempCompPeriod)                              // Is it time to compensate for temperature?
@@ -416,7 +417,7 @@ void loop()                                                                     
             pHCalledLast = false;
             atlasMillis = millis();
         }
-    }*/
+    }
 
     recvWithStartEndMarkers();                                            // Gather data sent from Mega over serial
     processSerialData();
@@ -474,7 +475,7 @@ void processSerialData()
       char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier
       strtokIndx = strtok(NULL, ":");
-      client.publish("feedback/atlas_pH", strtokIndx);
+      client.publish("feedback/ph", strtokIndx);
       if (receivedChars[8] == '3')
       {
           client.publish("feedback/general", "pH Cal Successful!");   // When we ask the pH EZO circuit above how many points it has calibrated, if it responds with a 3 here, publish success message to HA.

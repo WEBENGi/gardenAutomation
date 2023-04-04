@@ -15,6 +15,7 @@
     - 9-10x Soil moisture sensor
     - 1x Water flood sensor
     - 3 motor controllers with 2 motors each
+    - float valve sensor
   - Messages to ESP32:
     - <WL:X:YY.YY> - Water level # (in cm)
     - <TDS:XX.XX> - TDS (in ppm)
@@ -23,6 +24,11 @@
     - <FV:Drainage bucket:1> - Drainage bucket is full / <FV:Drainage bucket:0> Empty
     - <PPD:XX:YYY> - Perastaltic Pump XX on for YYY ms (Dosing)
     - <PPS:XX:YYY> - Perastaltic Pump XX set for YYY (Speed) PWM
+  - Messages expected from ESP32:
+    - <PumpSpeed:PAYLOAD>
+    - <DosingPumpPower:PAYLOAD>
+    - <PHCalibrate:PAYLOAD>
+    - <TDSCalibrate:PAYLOAD>
   - TODO:
     - How to calculate water amounts with ultrasonic?
     - Calibrate PH
