@@ -5,7 +5,7 @@
  
   - The ESP32 is responsible for relaying all data between the Mega and Home Assistant via MQTT, since the Mega has no WiFi capabilities. 
     - client(forpublish) for WIFI+MQTT (connect to WIFI+ MQTT / Home Assistant)
-
+    
   - All references to Serial are for printing to console only. Serial1 is the actual wired connection to the Mega in the control box.
 
   - For OPs pumps, flow rates are as follows: 300ms "on" time = 1mL, 500ms = 1.5mL, 1000ms = 3.25mL, 1500ms = 5mL, 2000ms = 6.75mL, 2500ms = 8.5mL, 3000ms = 10mL.
@@ -19,10 +19,46 @@
   - Sensors/Modules Attached:
     - Relay Module 8 Channel 5V Relay Module for Arduino Raspberry Pi AVR PIC ARM DSP ARM MSP430 TTL Logic Level
     - Relay Module 4 Channel 5V Relay Module for Arduino Raspberry Pi AVR PIC ARM DSP ARM MSP430 TTL Logic Level
+    - Water Temperature Sensor
+    - BME280 Temperature, Humidity, Pressure Sensor
+
+  - Messages to Home Assistant:
+    - "feedback/temperature" - Temperature of the control box
+    - "feedback/humidity" - Humidity of the control box
+    - "feedback/pressure" - Pressure of the control box
+    - "feedback/waterTemp" - Temperature of the mixing res solution
+    - "feedback/ph" - pH of the mixing res solution
+    - "feedback/tds" - TDS of the mixing res solution
+    - "feedback/phDownSpeed" - Speed of the phDown pump / pump 1
+    - "feedback/calMagSpeed" - Speed of the calMag pump / pump 2
+    - "feedback/microSpeed" - Speed of the micro pump / pump 3
+    - "feedback/bloomSpeed" - Speed of the bloom pump / pump 4
+    - "feedback/growSpeed" - Speed of the grow pump / pump 5
+    - "feedback/phUpSpeed" - Speed of the phUp pump / pump 6
+    - "feedback/noctuaFanSpeed" - Speed of the noctua fan
+    - "feedback/relays" - State of the relays
+    - "feedback/general" - general info / log
+    - "feedback/waterLevel1" - Waterlevel of the mixing res solution (ultrasonic)
+    - "feedback/waterLevel2" - Waterlevel 2 (ultrasonic)
+    - "feedback/waterLevel3" - Waterlevel 3 / Drainage bucket (float sensor)
+    - "feedback/soilMoisture" - State of the Soil moisture (capacitive) 
+    - "feedback/flood" - State of the flood sensor
+    
+    Messages expected from Home Assitant (Callbacks):
+    - control/dosing - Dosing pump power
+    - calibrate/dosing - Dosing pump speed
+    - calibrate/PH - PH calibration
+    - calibrate/TDS - TDS calibration
 
    TODO:
   ----------------------------------------------------------------------------------------------------------------------------------------------------------------
   - AP will need to test to find the rates of the different kinds of pumps
+    - "feedback/ec" - EC of the mixing res solution
+
+   Other possible sensors to add:
+    - "feedback/salinity" - Salinity of the mixing res solution
+    - "feedback/flow" - Flow rate of the mixing res solution
+    - "feedback/orp" - ORP of the mixing res solution
 ******************************************************************************************************************************************************************/
 
 #include <OneWire.h>
@@ -160,7 +196,7 @@ void callback(char* topic, byte* payload, unsigned int length)
       triggerRelay(boardNumber, relayNumber, relayPower);
 
       sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
-      Serial.println(buff);
+      Serial1.println(buff);
     }
     // CALLBACK: Dosing
     if (strcmp(topic, "control/dosing") == 0)   // Incoming message format will be <PUMP#>:<ONTIME>. ONTIME is in milliseconds.
@@ -445,12 +481,12 @@ void processSerialData()
       }
       break;
     }
-    case 'E':  // If message starts with 'E' (EC)
+    case 'E':  // If message starts with 'T' (TDS)
     {
       char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier;
       strtokIndx = strtok(NULL, ":");
-      client.publish("feedback/atlas_EC", strtokIndx);
+      client.publish("feedback/tds", strtokIndx);
       if (receivedChars[8] == '2')   // EC is considered 2 point calibration for some reason (dry, low, high)
       {
           client.publish("feedback/general", "EC Cal Successful!");
@@ -473,11 +509,6 @@ void processSerialData()
     case 'B':                                                      // Drain basin float sensor status
     {
       client.publish("feedback/drainBasin", receivedChars);
-      break;
-    }
-    case 'H':                                                      // HX711 calibration status (mixing res scale)
-    {
-      client.publish("feedback/hx711", receivedChars);
       break;
     }
     case 'R':                                                      // Relay feedback. Message format is "Relay FB:<BOARD#>:<RELAY#>:<STATUS>". Example: "Relay FB:0:4:1"
