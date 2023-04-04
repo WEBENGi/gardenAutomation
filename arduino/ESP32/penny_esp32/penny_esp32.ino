@@ -8,13 +8,21 @@
 
   - All references to Serial are for printing to console only. Serial1 is the actual wired connection to the Mega in the control box.
 
-  - For my pumps, flow rates are as follows: 300ms "on" time = 1mL, 500ms = 1.5mL, 1000ms = 3.25mL, 1500ms = 5mL, 2000ms = 6.75mL, 2500ms = 8.5mL, 3000ms = 10mL.
+  - For OPs pumps, flow rates are as follows: 300ms "on" time = 1mL, 500ms = 1.5mL, 1000ms = 3.25mL, 1500ms = 5mL, 2000ms = 6.75mL, 2500ms = 8.5mL, 3000ms = 10mL.
     - Voltage at V+/V- terminals on 12V PSU was 13.045V when pump flow rates were measured.
     - Starting PWM values were: phDownSpeed = 210, calMagSpeed = 204, microSpeed = 211, bloomSpeed = 206, growSpeed = 205, phUpSpeed = 210, noctuaFanSpeed = 125.
   - Dosing pump speeds are set by Home Assistant when the ESP32 connects via MQTT.
 
   - The ESP32 will send serial commands to the Mega to poll the Atlas Scientific sensors at a preset interval (atlasPeriod), alternating between them. It will send
     a temperature compensation value for the AS sensors based on the measured temperature of the mixing res solution at a preset interval as well (tempCompPeriod).
+
+  - Sensors/Modules Attached:
+    - Relay Module 8 Channel 5V Relay Module for Arduino Raspberry Pi AVR PIC ARM DSP ARM MSP430 TTL Logic Level
+    - Relay Module 4 Channel 5V Relay Module for Arduino Raspberry Pi AVR PIC ARM DSP ARM MSP430 TTL Logic Level
+
+   TODO:
+  ----------------------------------------------------------------------------------------------------------------------------------------------------------------
+  - AP will need to test to find the rates of the different kinds of pumps
 ******************************************************************************************************************************************************************/
 
 #include <OneWire.h>
@@ -79,11 +87,11 @@ char waterTemp[16];
 unsigned long currentMillis;                         // Grab a snapshot of current millis each pass through void loop()
 unsigned long tempCompMillis = millis();             // Timer for sending temperature compensation factor to EZO pH circuit
 unsigned long tempCheckMillis = millis();            // Timer to check control box temp and mix reservoir solution temp
-unsigned long atlasMillis = millis();                // Timer for polling the Atlas EC and pH circuits for readings
+//unsigned long atlasMillis = millis();                // Timer for polling the Atlas EC and pH circuits for readings
 
 const unsigned long tempCheckPeriod = 30000;         // How long to wait, in milliseconds, between checking box/water temp
 const unsigned long tempCompPeriod = 600000;         // How long to wait, in milliseconds, between sending temperature compensation factor to ezo pH circuit
-unsigned long atlasPeriod = 5000;                    // How long to wait, in milliseconds, between polling Atlas sensors for values
+//unsigned long atlasPeriod = 5000;                    // How long to wait, in milliseconds, between polling Atlas sensors for values
 
 // WiFi/MQTT/Serial
 char ssid[]= "YOUR___SSID";
