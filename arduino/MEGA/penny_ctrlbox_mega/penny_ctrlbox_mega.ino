@@ -30,6 +30,7 @@
     - Calibrate soil moisture
     - Calibrate water level
     - Calibrate Dosing pumps all in one command?
+    - Consolidate the waterlevel functions
 
   - To calibrate the scale:
     - Remove everything from the load cells. They should have abosolutely nothing resting on them. 
@@ -215,12 +216,14 @@ void loop() {
   {
     checkDrainBucket();
   }
-
+  
+  //Ultrasonic sensor 1
   if (currentMillis - waterLvl1Millis >= waterLvl1Period)
   {
     checkWaterLvl1();
   }
 
+  //Ultrasonic sensor 2
   if (currentMillis - waterLvl2Millis >= waterLvl2Period)
   {
     checkWaterLvl2();
@@ -232,15 +235,19 @@ void loop() {
     checkForFlood();
   }
 
+  //Check TDS sensor
   if (currentMillis - waterTDSMillis >= waterTDSPeriod)
   {
     checkTDSSensor();
   }
+
+  //Check PH sensor
   if (currentMillis - waterPHMillis >= waterPHPeriod)
   {
     readPHSensor();
   }
 
+  //Check dosing pump timers
   for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
   {
       if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
@@ -282,7 +289,6 @@ void setPumpPower(int pumpNumber, long onTime)
   }
   sprintf(buff, "%d:%d", pumpNumber, onTime > 0);
   Serial.println(buff);
-//  client.publish("feedback/dosing", buff);                        // Send feedback (<PUMP#>:<STATE>)
 }
 
 //Read Ultrasonic sensors and send to ESP32
@@ -316,11 +322,11 @@ void checkWaterLvl1()
   
   if (waterLevel < 0)
   {
-    Serial3.print("<WL1:0.00>");
+    Serial3.print("<WL:1:0.00>");
   }
   else
   {
-    Serial3.print("<WL1:");
+    Serial3.print("<WL:1:");
     Serial3.print(waterLevelStr);
     Serial3.println('>');
   }  
@@ -357,11 +363,11 @@ void checkWaterLvl2()
   Serial.println(" cm");
   if (waterLevel < 0)
   {
-    Serial3.print("<WL2:0.00>");
+    Serial3.print("<WL:2:0.00>");
   }
   else
   {
-    Serial3.print("<WL2:");
+    Serial3.print("<WL:2:");
     Serial3.print(waterLevelStr);
     Serial3.println('>');
   }  
@@ -494,6 +500,7 @@ void processSerialData()
     }
     case 'P':
     {
+      //PumpSpeed:
       int pumpNumber;
       int pwmVal;
       char* strtokIndx;
