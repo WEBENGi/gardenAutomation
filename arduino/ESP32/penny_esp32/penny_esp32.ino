@@ -29,12 +29,6 @@
     - "feedback/waterTemp" - Temperature of the mixing res solution
     - "feedback/ph" - pH of the mixing res solution
     - "feedback/tds" - TDS of the mixing res solution
-    - "feedback/phDownSpeed" - Speed of the phDown pump / pump 1
-    - "feedback/calMagSpeed" - Speed of the calMag pump / pump 2
-    - "feedback/microSpeed" - Speed of the micro pump / pump 3
-    - "feedback/bloomSpeed" - Speed of the bloom pump / pump 4
-    - "feedback/growSpeed" - Speed of the grow pump / pump 5
-    - "feedback/phUpSpeed" - Speed of the phUp pump / pump 6
     - "feedback/noctuaFanSpeed" - Speed of the noctua fan
     - "feedback/relays" - State of the relays
     - "feedback/general" - general info / log
@@ -50,6 +44,12 @@
     - calibrate/dosing - Dosing pump speed
     - calibrate/ph - PH calibration
     - calibrate/tds - TDS calibration
+
+    Messages to MEGA:
+    - <DosingPumpPower:???>
+    - <PumpSpeed:???>
+    - <PHCalibrate:Cal,(mid,low,high),(7.00,4.00,10.00)>
+    - <TDSCalibrate:Cal,dry> / <TDSCalibrate:Cal,low,700> / <TDSCalibrate:Cal,high,2000>
 
    TODO:
   ----------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -142,7 +142,8 @@ boolean newData = false;                            //Is there new data coming i
 
 // Atlas
 //boolean pHCalledLast = false;                       // Tracks whether pH was polled last or EC.
-boolean stopReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
+boolean stopPHReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
+boolean stopTDSReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
 
 const int pwmNoctuaFanPin = 34;//15;
 const int pwmNOCTUA = 125;                          // This is the PWM rate for the noctua fan in the control box. It never changes.
@@ -176,10 +177,6 @@ void callback(char* topic, byte* payload, unsigned int length)
 
     if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
     {
-      /*Serial1.print("<Relay:");               // Print this command to the Mega since it handles the relays.
-      Serial1.print(payloadStr);
-      Serial1.println('>');*/
-      
       int boardNumber;
       int relayNumber;
       int relayPower;
@@ -224,37 +221,37 @@ void callback(char* topic, byte* payload, unsigned int length)
         {
             case 'm':
             {
-                stopReadings = true;
+                stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<99:Cal,mid,7.00>");
+                Serial1.println("<PHCalibrate:Cal,mid,7.00>");
                 phMillis = millis();
-                stopReadings = false;
+                stopPHReadings = false;
                 break;
             }
             case 'l':
             {
-                stopReadings = true;
+                stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<99:Cal,low,4.00>");
+                Serial1.println("<PHCalibrate:Cal,low,4.00>");
                 phMillis = millis();
-                stopReadings = false;
+                stopPHReadings = false;
                 break;
             }
             case 'h':
             {
-                stopReadings = true;
+                stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<99:Cal,high,10.00>");
+                Serial1.println("<PHCalibrate:Cal,high,10.00>");
                 delay(2000);
-                Serial1.println("<99:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
+                Serial1.println("<PHCalibrate:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
                 phMillis = millis();
-                stopReadings = false;
+                stopPHReadings = false;
                 break;
             }
         }
     }
 
-    // CALLBACK: EC Calibration 
+    // CALLBACK: TDS Calibration 
 
     if (strcmp(topic, "calibrate/tds") == 0)           // EC cal values of 700 & 2000 are hard coded to match Atlas calibration solutions. Change these if you're using diff solutions.
     {
@@ -262,34 +259,33 @@ void callback(char* topic, byte* payload, unsigned int length)
         {
             case 'd':
             {
-
-                stopReadings = true;
+                stopTDSReadings = true;
                 delay(2000);
-                Serial1.println("<100:Cal,dry>");
+                Serial1.println("<TDSCalibrate:Cal,dry>");
                 delay(1000);
                 tdsMillis = millis();
-                stopReadings = false;
+                stopTDSReadings = false;
                 break;
             }
             case 'l':
             {
-                stopReadings = true;
+                stopTDSReadings = true;
                 delay(2000);
-                Serial1.println("<100:Cal,low,700>");
+                Serial1.println("<TDSCalibrate:Cal,low,700>");
                 delay(1000);
                 tdsMillis = millis();
-                stopReadings = false;
+                stopTDSReadings = false;
                 break;
             }
             case 'h':
             {
-                stopReadings = true;
+                stopTDSReadings = true;
                 delay(2000);
-                Serial1.println("<100:Cal,high,2000>");
+                Serial1.println("<TDSCalibrate:Cal,high,2000>");
                 delay(2000);
-                Serial1.println("<100:Cal,?>");              // Again, how many points of calibration?
+                Serial1.println("<TDSCalibrate:Cal,?>");              // Again, how many points of calibration?
                 tdsMillis = millis();
-                stopReadings = false;
+                stopTDSReadings = false;
                 break;
             }
         }
@@ -319,7 +315,6 @@ void reconnect()
                 client.subscribe("calibrate/ph");
                 client.subscribe("calibrate/tds");
                 client.subscribe("calibrate/dosing");
-                client.subscribe("calibrate/scale");
             }
             else
             {
@@ -392,32 +387,30 @@ void loop()                                                                     
         tempCheckMillis = currentMillis;
     }
 
-    if ((currentMillis - atlasMillis > atlasPeriod) && (stopReadings == false))         // Is it time to read the EZO circuits?
+    if ((currentMillis - phMillis > phPeriod) && (stopPHReadings == false))         // Is it time to read the EZO circuits?
     {
         if (currentMillis - tempCompMillis > tempCompPeriod)                              // Is it time to compensate for temperature?
         {
             if ((celcius >= 10) && (celcius <= 30))                                         // Make sure I'm not getting a garbage reading from temp sensor prior to sending temp compensation to pH circuit
             {
-                Serial1.print("<99:T,");
+                Serial1.print("<P:T,");
                 Serial1.print(waterTemp);
                 Serial1.println('>');
                 tempCompMillis = millis();
-                atlasMillis = millis();
+                phMillis = millis();
             }
         }
         else if (pHCalledLast == false)                                                 // If pH circuit was not read last, read it.
         {
-            Serial1.println("<99:R>");
-            pHCalledLast = true;
-            atlasMillis = millis();
-        }
-        else                                                                            // Otherwise read EC.
-        {
-            Serial1.println("<100:R>");
-            pHCalledLast = false;
-            atlasMillis = millis();
+            Serial1.println("<P:R>");
+            phMillis = millis();
         }
     }
+    if ((currentMillis - tdsMillis > tdsPeriod) && (stopTDSReadings == false))   
+        Serial1.println("<T:R>");
+        tdsMillis = millis();
+    }
+
 
     recvWithStartEndMarkers();                                            // Gather data sent from Mega over serial
     processSerialData();
@@ -490,7 +483,7 @@ void processSerialData()
       client.publish("feedback/tds", strtokIndx);
       if (receivedChars[8] == '2')   // EC is considered 2 point calibration for some reason (dry, low, high)
       {
-          client.publish("feedback/general", "EC Cal Successful!");
+          client.publish("feedback/general", "TDS Cal Successful!");
       }
       break;
     }
@@ -505,11 +498,6 @@ void processSerialData()
       strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
       strtokIndx = strtok(NULL, ":");
       client.publish("feedback/waterLevel", strtokIndx);
-      break;
-    }
-    case 'B':                                                      // Drain basin float sensor status
-    {
-      client.publish("feedback/drainBasin", receivedChars);
       break;
     }
     case 'R':                                                      // Relay feedback. Message format is "Relay FB:<BOARD#>:<RELAY#>:<STATUS>". Example: "Relay FB:0:4:1"
