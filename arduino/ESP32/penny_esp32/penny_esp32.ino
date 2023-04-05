@@ -23,22 +23,22 @@
     - BME280 Temperature, Humidity, Pressure Sensor
 
   - Messages to Home Assistant:
-    - "feedback/temperature" - Temperature of the control box
-    - "feedback/humidity" - Humidity of the control box
-    - "feedback/pressure" - Pressure of the control box
+    - "feedback/general" - general info / log
+    - "feedback/boxTemp" - Temperature of the control box
+    - "feedback/boxHumidity" - Humidity of the control box
+    - "feedback/boxPressure" - Pressure of the control box
+    - "feedback/boxSeaLevel" - Altitude / Sealevel of the control box
     - "feedback/waterTemp" - Temperature of the mixing res solution
     - "feedback/ph" - pH of the mixing res solution
     - "feedback/tds" - TDS of the mixing res solution
-    - "feedback/noctuaFanSpeed" - Speed of the noctua fan
     - "feedback/relays" - State of the relays
-    - "feedback/general" - general info / log
     - "feedback/waterLevel1" - Waterlevel of the mixing res solution (ultrasonic)
     - "feedback/waterLevel2" - Waterlevel 2 (ultrasonic)
     - "feedback/waterLevel3" - Waterlevel 3 / Drainage bucket (float sensor)
     - "feedback/soilMoisture" - State of the Soil moisture (capacitive) 
     - "feedback/flood" - State of the flood sensor
     
-    Messages expected from Home Assitant (Callbacks):
+    Messages expected from Home Assitant / Listening (Callbacks):
     - control/dosing - Dosing pump power
     - control/relays - Relay power
     - calibrate/dosing - Dosing pump speed
@@ -48,9 +48,20 @@
     Messages to MEGA:
     - <DosingPumpPower:???>
     - <PumpSpeed:???>
-    - <PHCalibrate:Cal,(mid,low,high),(7.00,4.00,10.00)>
+    - <CalibratePH:Cal,(mid,low,high),(7.00,4.00,10.00)>
     - <TDSCalibrate:Cal,dry> / <TDSCalibrate:Cal,low,700> / <TDSCalibrate:Cal,high,2000>
 
+  - Messages from MEGA:
+    - <WL:X:YY.YY> - Water level # (in cm)
+    - <TDS:XX.XX> - TDS (in ppm)
+    - <H:XX.XX> - PH
+    - <M:XX:YY.YY> - Soil moisture sensor - YY.YY (in %)
+    - <FV:Drainage bucket:1> - Drainage bucket is full / <FV:Drainage bucket:0> Empty
+    - <D:XX:YYY> - Perastaltic Pump XX on for YYY ms (Dosing)
+    - <S:XX:YYY> - Perastaltic Pump XX set for YYY (Speed) PWM
+    - <Flooding (Location)> - Flooding detected
+
+    - "feedback/noctuaFanSpeed" - Speed of the noctua fan
    TODO:
   ----------------------------------------------------------------------------------------------------------------------------------------------------------------
   - AP will need to test to find the rates of the different kinds of pumps
@@ -205,7 +216,6 @@ void callback(char* topic, byte* payload, unsigned int length)
     }
 
     // CALLBACK: Pump Speed Adjustments 
-
     if (strcmp(topic, "calibrate/dosing") == 0)
     {
         Serial1.print("<PumpSpeed:");               // Print this command to the Mega since it handles
@@ -213,8 +223,7 @@ void callback(char* topic, byte* payload, unsigned int length)
         Serial1.println('>');   
     }
   
-  // CALLBACK: pH Calibration 
-
+    // CALLBACK: pH Calibration 
     if (strcmp(topic, "calibrate/ph") == 0)           // pH cal values of 7.00, 4.00, and 10.00 are hard coded to match Atlas calibration solutions. Change these if you're using different solutions.
     {
         switch (payloadStr[0])                                  // Payload will be "mid", "low", or "high". Switching on first char to tell which it is.
@@ -223,7 +232,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<PHCalibrate:Cal,mid,7.00>");
+                Serial1.println("<CalibratePH:Cal,mid,7.00>");
                 phMillis = millis();
                 stopPHReadings = false;
                 break;
@@ -232,7 +241,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<PHCalibrate:Cal,low,4.00>");
+                Serial1.println("<CalibratePH:Cal,low,4.00>");
                 phMillis = millis();
                 stopPHReadings = false;
                 break;
@@ -241,9 +250,9 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<PHCalibrate:Cal,high,10.00>");
+                Serial1.println("<CalibratePH:Cal,high,10.00>");
                 delay(2000);
-                Serial1.println("<PHCalibrate:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
+                Serial1.println("<CalibratePH:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
                 phMillis = millis();
                 stopPHReadings = false;
                 break;
@@ -400,17 +409,17 @@ void loop()                                                                     
                 phMillis = millis();
             }
         }
-        else if (pHCalledLast == false)                                                 // If pH circuit was not read last, read it.
+        else                                                
         {
             Serial1.println("<P:R>");
             phMillis = millis();
         }
     }
-    if ((currentMillis - tdsMillis > tdsPeriod) && (stopTDSReadings == false))   
+    if ((currentMillis - tdsMillis > tdsPeriod) && (stopTDSReadings == false)) 
+    { 
         Serial1.println("<T:R>");
         tdsMillis = millis();
     }
-
 
     recvWithStartEndMarkers();                                            // Gather data sent from Mega over serial
     processSerialData();
@@ -463,7 +472,7 @@ void processSerialData()
   char commandChar = receivedChars[0];
   switch (commandChar)
   {
-    case 'P': // If message starts with 'P' (pH)
+    case 'H': // If message starts with 'P' (pH)
     {
       char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier
@@ -475,7 +484,7 @@ void processSerialData()
       }
       break;
     }
-    case 'E':  // If message starts with 'T' (TDS)
+    case 'T':  // If message starts with 'T' (TDS)
     {
       char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier;
@@ -493,6 +502,41 @@ void processSerialData()
       break;
     }
     case 'W':
+    {
+      char* strtokIndx;
+      strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
+      strtokIndx = strtok(NULL, ":");
+      client.publish("feedback/waterLevel", strtokIndx);
+      break;
+    }
+    case 'D':
+    {
+      int pumpNumber;
+      long onTime;
+      char* strtokIndx;
+      strtokIndx = strtok(receivedChars, ":");   
+      pumpNumber = atoi(strtokIndx);                // Skip the first segment 
+      strtokIndx = strtok(NULL, ":");
+      onTime = atol(strtokIndx);      
+      
+      sprintf(strtokIndx, "%d:%d", pumpNumber, onTime > 0);
+      Serial.println(strtokIndx);
+      client.publish("feedback/dosing", strtokIndx);       
+      break;
+    }
+    case 'M':
+    {
+      char* strtokIndx;
+      strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
+      soilMoistureNumber = atoi(strtokIndx);
+      strtokIndx = strtok(NULL, ":");
+      moistureReading = atol(strtokIndx);   
+      sprintf(strtokIndx, "%d:%d", soilMoistureNnumber, moistureReading);
+      Serial.println(strtokIndx);
+      client.publish("feedback/soilMoisture", strtokIndx);     
+      break;
+    }
+    case 'P':
     {
       char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
@@ -558,7 +602,7 @@ void getBoxPressure()
 void getWaterLevel()
 {
   dtostrf(bme.readAltitude(SEALEVELPRESSURE_HPA), 3, 1, bmeBuffer);
-  client.publish("feedback/waterLevel", bmeBuffer);
+  client.publish("feedback/boxSeaLevel", bmeBuffer);
 }
 void triggerRelay(int boardNumber, int relayNumber, int relayTrigger)
 {
@@ -599,3 +643,9 @@ void triggerRelay(int boardNumber, int relayNumber, int relayTrigger)
         }
 
  */
+float calculate_pH(float voltage, float calib_volt_7, float calib_volt_4, float calib_volt_10) {
+  float slope = (7.0 - 4.0) / (calib_volt_7 - calib_volt_4);
+  float intercept = 7.0 - slope * calib_volt_7;
+  float pH = slope * voltage + intercept;
+  return pH;
+}

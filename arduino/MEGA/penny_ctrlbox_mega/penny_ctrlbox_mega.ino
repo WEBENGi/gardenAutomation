@@ -19,15 +19,16 @@
   - Messages to ESP32:
     - <WL:X:YY.YY> - Water level # (in cm)
     - <TDS:XX.XX> - TDS (in ppm)
-    - <PH:XX.XX> - PH
-    - <SM:XX:YY.YY> - Soil moisture sensor - YY.YY (in %)
+    - <H:XX.XX> - PH
+    - <M:XX:YY.YY> - Soil moisture sensor - YY.YY (in %)
     - <FV:Drainage bucket:1> - Drainage bucket is full / <FV:Drainage bucket:0> Empty
-    - <PPD:XX:YYY> - Perastaltic Pump XX on for YYY ms (Dosing)
-    - <PPS:XX:YYY> - Perastaltic Pump XX set for YYY (Speed) PWM
+    - <D:XX:YYY> - Perastaltic Pump XX on for YYY ms (Dosing)
+    - <S:XX:YYY> - Perastaltic Pump XX set for YYY (Speed) PWM
+    - <Flooding (Location))> - Flooding detected
   - Messages expected from ESP32:
     - <PumpSpeed:PAYLOAD>
     - <DosingPumpPower:PAYLOAD>
-    - <PHCalibrate:PAYLOAD>
+    - <CalibratePH:PAYLOAD>
     - <TDSCalibrate:PAYLOAD>
   - TODO:
     - How to calculate water amounts with ultrasonic?
@@ -38,15 +39,6 @@
     - Calibrate Dosing pumps all in one command?
     - Consolidate the waterlevel functions
 
-  - To calibrate the scale:
-    - Remove everything from the load cells. They should have abosolutely nothing resting on them. 
-    - Initiate the "begin scale calibration" script from Home Assistant calibration page.
-    - Follow instructions that are sent over MQTT.
-    - You will be measuring in Kg, not lbs, so be sure to convert whatever you're measuring to Kg.
-    - Adjust the calibration factor using the input on the Home Assistant calibration page.
-    - When the scale readout matches the weight you're calibrating with, remove the calibration weight.
-    - When you execute the "Save and exit" script in HA, it will save the calibaration value you've set, then tare the scale, so it will read 0.0 
-      when you're finished. Since 1 liter of water has the same mass as 1 Kilogram, your scale will now show you how much water, in liters, is in the res.
 ***********************************************************************************************************************************************/
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
@@ -242,15 +234,16 @@ void loop() {
   }
 
   //Check TDS sensor
-  if (currentMillis - waterTDSMillis >= waterTDSPeriod)
+  if (currentMillis - waterTDSMillis >= waterTDSPeriod && (tdsCalibrateMode == false))
   {
     checkTDSSensor();
   }
 
   //Check PH sensor
-  if (currentMillis - waterPHMillis >= waterPHPeriod)
+  if ((currentMillis - waterPHMillis >= waterPHPeriod) && (phCalibrateMode == false))
+  //&& phCalibrateMode == )
   {
-    readPHSensor();
+    checkPHSensor();
   }
 
   //Check dosing pump timers
@@ -411,12 +404,12 @@ void checkDrainBucket()
   if (drainBucketStatus == HIGH)
   {
     Serial.println("<Drainage bucket full!>");
-    Serial3.println("<FV:Drainage bucket:1>");
+    Serial3.println("<V:Drainage bucket:1>");
   }
   else
   {
     Serial.println("<Drainage Bucket OK>");
-    Serial3.println("<FV:Drainage Bucket:0>");
+    Serial3.println("<V:Drainage Bucket:0>");
   }
   drainBucketMillis = millis();
 }
@@ -484,6 +477,46 @@ void processSerialData()
   char commandChar = receivedChars[0];
   switch (commandChar)
   {
+    case 'C':                                                     // If the message from the ESP32 starts with a "9", it's related to pH.
+    {
+      channel = atoi(strtok(receivedChars, ":"));                 // Parse the string at each colon
+      cmd = strtok(NULL, ":");
+      if (cmd[0] == 'C' || cmd[0] == 'R')
+      {
+        waterPHPeroid = 1400;                                           // If a command has been sent to calibrate or take a reading we wait 1400ms so that the circuit has time to take the reading.
+      }
+      else 
+      {
+        waterPHPeroid = 300;                                            // If any other command has been sent we wait only 300ms.
+      }                                               // Send to I2C
+      if (cmd[0] != 'T')
+      {
+        char buff[20];
+        sprintf(buff, "<PH:%s>", sensorData);
+        Serial3.println(buff);
+      }
+      break;
+    } 
+    case 'T':                                                     // If the message from the ESP32 starts with a "1", it's related to EC.
+    {
+      channel = atoi(strtok(receivedChars, ":"));
+      cmd = strtok(NULL, ":");
+      if (cmd[0] == 'C' || cmd[0] == 'R')
+      {
+        waterTDSPeriod = 1400;                                           // If a command has been sent to calibrate or take a reading we wait 1400ms so that the circuit has time to take the reading.
+      }
+      else 
+      {
+        waterTDSPeriod = 300;                                            // If any other command has been sent we wait only 300ms.
+      }
+      
+      if (cmd != 'T'){
+        char buff[20];
+        sprintf(buff, "<TDS:%s>", sensorData);
+        Serial3.println(buff);
+      }
+      break;
+    }
     case 'D':
     {
       //Dosing / PumpPower:
