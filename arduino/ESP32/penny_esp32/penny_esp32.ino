@@ -32,11 +32,10 @@
     - "feedback/ph" - pH of the mixing res solution
     - "feedback/tds" - TDS of the mixing res solution
     - "feedback/relays" - State of the relays
-    - "feedback/waterLevel1" - Waterlevel of the mixing res solution (ultrasonic)
-    - "feedback/waterLevel2" - Waterlevel 2 (ultrasonic)
-    - "feedback/waterLevel3" - Waterlevel 3 / Drainage bucket (float sensor)
+    - "feedback/waterLevel" - Waterlevel (ultrasonic)
     - "feedback/soilMoisture" - State of the Soil moisture (capacitive) 
     - "feedback/flood" - State of the flood sensor
+    - "feedback/waterLevelFloat" - State of the water level float sensor (Drainage Bucket)
     
     Messages expected from Home Assitant / Listening (Callbacks):
     - control/dosing - Dosing pump power
@@ -56,7 +55,7 @@
     - <TDS:XX.XX> - TDS (in ppm)
     - <H:XX.XX> - PH
     - <M:XX:YY.YY> - Soil moisture sensor - YY.YY (in %)
-    - <FV:Drainage bucket:1> - Drainage bucket is full / <FV:Drainage bucket:0> Empty
+    - <V:Drainage bucket:1> - Drainage bucket is full / <FV:Drainage bucket:0> Empty
     - <D:XX:YYY> - Perastaltic Pump XX on for YYY ms (Dosing)
     - <S:XX:YYY> - Perastaltic Pump XX set for YYY (Speed) PWM
     - <Flooding (Location)> - Flooding detected
@@ -135,11 +134,13 @@ char waterTemp[16];
 unsigned long currentMillis;                         // Grab a snapshot of current millis each pass through void loop()
 unsigned long tempCompMillis = millis();             // Timer for sending temperature compensation factor to EZO pH circuit
 unsigned long tempCheckMillis = millis();            // Timer to check control box temp and mix reservoir solution temp
-//unsigned long atlasMillis = millis();                // Timer for polling the Atlas EC and pH circuits for readings
+unsigned long phMillis = millis();                // Timer for polling thevpH circuits for readings
+unsigned long tdsMillis = millis();                // Timer for polling thevpH circuits for readings
 
 const unsigned long tempCheckPeriod = 30000;         // How long to wait, in milliseconds, between checking box/water temp
 const unsigned long tempCompPeriod = 600000;         // How long to wait, in milliseconds, between sending temperature compensation factor to ezo pH circuit
-//unsigned long atlasPeriod = 5000;                    // How long to wait, in milliseconds, between polling Atlas sensors for values
+unsigned long phPeriod = 5000;                    // How long to wait, in milliseconds, between polling ph sensor for values
+unsigned long tdsPeriod = 5000;                    // How long to wait, in milliseconds, between polling tds sensor for values
 
 // WiFi/MQTT/Serial
 char ssid[]= "YOUR___SSID";
@@ -504,9 +505,24 @@ void processSerialData()
     case 'W':
     {
       char* strtokIndx;
+      int waterSensorNumber;
+      long waterSensorValue;
+      strtokIndx = strtok(receivedChars, ":");  
+      waterSensorNumber = atoi(strtokIndx);                    // Skip the first segment 
+      strtokIndx = strtok(NULL, ":");
+      waterSensorValue = atol(strtokIndx);  
+      sprintf(strtokIndx, "%d:%d", waterSensorNumber, waterSensorValue);
+      Serial.println(strtokIndx);
+      client.publish("feedback/waterLevel", strtokIndx);
+      break;
+    }    
+
+    case 'V':
+    {
+      char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
       strtokIndx = strtok(NULL, ":");
-      client.publish("feedback/waterLevel", strtokIndx);
+      client.publish("feedback/waterLevelFloat", strtokIndx);
       break;
     }
     case 'D':
@@ -527,11 +543,14 @@ void processSerialData()
     case 'M':
     {
       char* strtokIndx;
+      int soilMoistureNumber;
+      int moistureReading;
+
       strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
       soilMoistureNumber = atoi(strtokIndx);
       strtokIndx = strtok(NULL, ":");
       moistureReading = atol(strtokIndx);   
-      sprintf(strtokIndx, "%d:%d", soilMoistureNnumber, moistureReading);
+      sprintf(strtokIndx, "%d:%d", soilMoistureNumber, moistureReading);
       Serial.println(strtokIndx);
       client.publish("feedback/soilMoisture", strtokIndx);     
       break;
