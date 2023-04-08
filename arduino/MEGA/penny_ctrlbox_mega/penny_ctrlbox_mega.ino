@@ -14,20 +14,18 @@
     - 1x PH sensor
     - 9-10x Soil moisture sensor
     - 1x Water flood sensor
-    - 3 motor controllers with 2 motors each
     - float valve sensor
+    - Relay Module 8 Channel 5V Relay Module for Arduino Raspberry Pi AVR PIC ARM DSP ARM MSP430 TTL Logic Level
+    - Relay Module 4 Channel 5V Relay Module for Arduino Raspberry Pi AVR PIC ARM DSP ARM MSP430 TTL Logic Level
+ 
   - Messages to ESP32:
     - <WL:X:YY.YY> - Water level # (in cm)
     - <TDS:XX.XX> - TDS (in ppm)
     - <H:XX.XX> - PH
     - <M:XX:YY.YY> - Soil moisture sensor - YY.YY (in %)
     - <V:Drainage bucket:1> - Drainage bucket is full / <FV:Drainage bucket:0> Empty
-    - <D:XX:YYY> - Perastaltic Pump XX on for YYY ms (Dosing)
-    - <S:XX:YYY> - Perastaltic Pump XX set for YYY (Speed) PWM
     - <Flooding (Location))> - Flooding detected
   - Messages expected from ESP32:
-    - <PumpSpeed:PAYLOAD>
-    - <DosingPumpPower:PAYLOAD>
     - <CalibratePH:PAYLOAD>
     - <TDSCalibrate:PAYLOAD>
   - TODO:
@@ -36,7 +34,6 @@
     - Calibrate TDS
     - Calibrate soil moisture
     - Calibrate water level
-    - Calibrate Dosing pumps all in one command?
     - Consolidate the waterlevel functions
 
 ***********************************************************************************************************************************************/
@@ -46,19 +43,18 @@
 //placeholders for the pins
 
 #define WATER_LEAK_SENSOR_1 A14  // should this be analog?
-
-#define PIN_MC_1_ENA 31
-#define PIN_MC_1_ENB 32
-#define PIN_MC_1_IO1 35  // This is wrong
-#define PIN_MC_1_IO3 34  // this is wrong
-#define PIN_MC_2_ENA 51
-#define PIN_MC_2_ENB 52
-#define PIN_MC_2_IO1 50
-#define PIN_MC_2_IO3 53
-#define PIN_MC_3_ENA 36
-#define PIN_MC_3_ENB 35  //this is wrong?
-#define PIN_MC_3_IO1 35
-#define PIN_MC_3_IO3 34
+#define PIN_RELAY8_01 17 
+#define PIN_RELAY8_02 25
+#define PIN_RELAY8_03 32
+#define PIN_RELAY8_04 12
+#define PIN_RELAY8_05 4
+#define PIN_RELAY8_06 0
+#define PIN_RELAY8_07 2
+#define PIN_RELAY8_08 23
+#define PIN_RELAY4_01 19
+#define PIN_RELAY4_02 18
+#define PIN_RELAY4_03 17
+#define PIN_RELAY4_04 16
 
 #define ANALOG_PIN_SOIL_01 A4
 #define ANALOG_PIN_SOIL_02 A5
@@ -85,6 +81,15 @@
 #define PIN_US_DISTANCE_1_ECHO 17
 #define PIN_US_DISTANCE_2_TRIG 18
 #define PIN_US_DISTANCE_2_ECHO 19
+
+// Relays
+int relayPins[2][8]
+{
+  {PIN_RELAY8_01, PIN_RELAY8_02, PIN_RELAY8_03, PIN_RELAY8_04, PIN_RELAY8_05, PIN_RELAY8_06, PIN_RELAY8_07, PIN_RELAY8_08},              
+  // 8 Chan Relay Board: [0]=plug switch 3 , [1]=plug switch 2 , [2]=plug switch 1 , [3]=Solenoid 5 , [4]=Solenoid 4 , [5]=Solenoid 3 , [6]=Solenoid 2 , [7]=Solenoid 1
+  {PIN_RELAY4_01, PIN_RELAY4_02, PIN_RELAY4_03, PIN_RELAY4_04}                               
+  // 4 Chan Relay Board: [0]=Stirring fans , [1]=internal cooling fna , [2]=plug switch 5 , [3]=plug switch 4
+};
 
 #define PIN_MEGA_TX0 1
 #define PIN_MEGA_RX0 2
@@ -117,9 +122,6 @@ char waterSensorNames[][22]  // For describing where flood sensor was triggered
   };
 int waterSensorPins[]{ WATER_LEAK_SENSOR_1 };
 
-// Timing
-unsigned long dosingPumpMillis[6];  // Timer to check to see if pump needs to be shut off
-unsigned long dosingPumpPeriod[6];  // Array of modifiable "pump on" times that are sent by Home Assistant. These determine how long to keep pump on before shutting off.
 
 unsigned long currentMillis;       // Snapshot of current time
 unsigned long floodStartMillis;    // Timer to check for flood
@@ -152,26 +154,6 @@ const int soilWaterSensorPin[9]{
 };
 //,ANALOG_PIN_SOIL_10;
 
-// GPIO Pin numbers for Enable
-const int dosingPumpEnablePin[6]{
-  PIN_MC_1_IO1, PIN_MC_1_IO3, PIN_MC_1_IO1, PIN_MC_2_IO3, PIN_MC_3_IO1, PIN_MC_3_IO3
-};
-
-// GPIO Pin numbers for PWM
-const int dosingPumpPWMpin[6]{
-  PIN_MC_1_ENA, PIN_MC_1_ENB, PIN_MC_2_ENA, PIN_MC_2_ENB, PIN_MC_3_ENA, PIN_MC_3_ENB
-};
-
-// PWM properties
-const int freq = 5000;
-const int resolution = 8;
-const int pwmChannel[6]  // This array has 7 due to 6 Dosing pumps + the noctua fan in the control box. Noctua pwm rate never changes though.
-  {
-    0, 1, 2, 3, 4, 5  //, 6
-  };
-
-int pumpSpeeds[6];
-
 void setup() {
   Serial3.begin(baudRate);
   Serial.begin(baudRate);
@@ -186,26 +168,28 @@ void setup() {
   pinMode(PIN_FLOAT_VALVE, INPUT_PULLUP);
   pinMode(PIN_TDS_SENSOR, INPUT);
 
-  for (unsigned int i = 0; i < NUM_ELEMENTS(dosingPumpEnablePin); i++) {
-    pinMode(dosingPumpEnablePin[i], OUTPUT);
-  }
-
-  // The condition in for loop is -1 because the noctua fan pwm channel is the last one and we will update it separately below
-  for (unsigned int i = 0; i < NUM_ELEMENTS(dosingPumpPWMpin); i++) {
-    pinMode(dosingPumpPWMpin[i], OUTPUT);
-    analogWrite(dosingPumpPWMpin[i], pwmChannel[i]);
-    //  ledcSetup(pwmChannel[i], freq, resolution);
-    //  ledcAttachPin(dosingPumpPWMpin[i], pwmChannel[i]);
-  }
-
   Serial.println("Setup complete, starting loop!");
 }
 void loop() {
-
+/* if (Serial.available() > 0) {
+    String receivedData = Serial.readString();
+    // Process the received data
+    Serial.println("Received data: " + receivedData);
+  }*/
   currentMillis = millis();
+  recvWithStartEndMarkers2();
   recvWithStartEndMarkers();
   processSerialData();
-
+  
+  for (int i = 0; i < 2; i++)
+  {
+    for (int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
+    {
+      pinMode(relayPins[i][j], OUTPUT);
+      digitalWrite(relayPins[i][j], HIGH);
+    }
+  }
+return;
   //Check water soil sensors
   if (currentMillis - soilWaterLvlMillis >= soilWaterLvlPeriod) {
     checkSoilWaterLvl();
@@ -242,14 +226,6 @@ void loop() {
   {
     checkPHSensor();
   }
-
-  //Check dosing pump timers
-  for (unsigned int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++) {
-    if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))  // If pump is on and its timer has expired...
-    {
-      setPumpPower(i, 0);  // Shut it off by setting timer to 0.
-    }
-  }
 }
 void checkPHSensor() {
   char currentPHStr[10];  // define a buffer to store the ph as a string
@@ -261,23 +237,6 @@ void checkPHSensor() {
     Serial3.println('>');
   }
   waterPHMillis = millis();
-}
-void setPumpSpeeds(int pumpNumber, int pumpSpeed) {
-  analogWrite(pwmChannel[pumpNumber], pumpSpeed);
-}
-
-void setPumpPower(int pumpNumber, long onTime) {
-  char buff[5];
-  digitalWrite(dosingPumpEnablePin[pumpNumber], onTime);  // If onTime is > 0, write the pin high. Otherwise write it low.
-  if (onTime > 0) {
-    dosingPumpMillis[pumpNumber] = millis();  // If pump is being turned on, start the timer
-    dosingPumpPeriod[pumpNumber] = onTime;
-  } else {
-    dosingPumpMillis[pumpNumber] = 0;  // If pump is being turned off, zero millis/period out.
-    dosingPumpPeriod[pumpNumber] = 0;
-  }
-  sprintf(buff, "%d:%d", pumpNumber, onTime > 0);
-  Serial.println(buff);
 }
 
 //Read Ultrasonic sensors and send to ESP32
@@ -403,6 +362,8 @@ void checkForFlood()  // I'm doing this with analog output of sensors, but this 
       Serial3.print("<Flooding ");
       Serial3.print(waterSensorNames[i]);
       Serial3.println('>');
+      Serial.print("Flooding:");
+      Serial.println(waterSensorNames[i]);
     }
   }
   floodStartMillis = millis();
@@ -439,9 +400,42 @@ void recvWithStartEndMarkers() {
     }
   }
 }
+// Check for serial data from Console.
+void recvWithStartEndMarkers2() {
+  static bool recvInProgress = false;
+  static byte ndx = 0;
+  char startMarker = '<';
+  char endMarker = '>';
+  char rc;
+
+  while (Serial.available() > 0 && newData == false) {
+    rc = Serial.read();
+
+    if (recvInProgress == true) {
+      if (rc != endMarker) {
+        receivedChars[ndx] = rc;
+        ndx++;
+        if (ndx >= numChars) {
+          ndx = numChars - 1;
+        }
+      } else {
+        receivedChars[ndx] = '\0';
+        recvInProgress = false;
+        ndx = 0;
+        newData = true;
+      }
+    }
+
+    else if (rc == startMarker) {
+      recvInProgress = true;
+    }
+  }
+}
 void processSerialData() {
   if (newData != true) { return; }
 
+  Serial.print("Received Input: ");
+  Serial.println(receivedChars);
   char commandChar = receivedChars[0];
   switch (commandChar) {
     case 'C':  // If the message from the ESP32 starts with a "C", it's related to Calibrate pH.
@@ -459,6 +453,8 @@ void processSerialData() {
           dtostrf(readPHSensor(), 6, 3, buff); // Convert myFloat to a string with 3 decimal places and store it in buffer
 
           sprintf(buff, "<PH:%s>", buff);
+          Serial.print("Printing to Serial: ");
+          Serial.println(buff);
           Serial3.println(buff);
         }
         break;
@@ -482,47 +478,35 @@ void processSerialData() {
           dtostrf(readTDSSensor(), 6, 3, buff); // Convert myFloat to a string with 3 decimal places and store it in buffer
 
           sprintf(buff, "<TDS:%s>", buff );
+          Serial.print("Printing to Serial: ");
+          Serial.println(buff);
           Serial3.println(buff);
         }
         break;
       }
-    case 'D':
+   case 'R':                                                     // If message starts with "R", it's for relays. Message format is "Relay:<BOARD#>:<RELAY#>:<STATUS>". Example: "Relay:0:4:1"
       {
-        //Dosing / PumpPower:
-        int pumpNumber;
-        long onTime;
-        char* strtokIndx;
-
-        strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the 'D' character
-
-        strtokIndx = strtok(strtokIndx, ":");  // Get the pump number
-        pumpNumber = atoi(strtokIndx);
-        strtokIndx = strtok(NULL, ":");
-        onTime = atol(strtokIndx);  // Get the on time
-
-        Serial.println(pumpNumber);
-        Serial.println(onTime);
-
-        setPumpPower(pumpNumber, onTime);
-        break;
-      }
-    case 'P':
-      {
-        //PumpSpeed:
-        int pumpNumber;
-        int pwmVal;
-        char* strtokIndx;
-
-        strtokIndx = strtok(receivedChars, ":");  // Get the pump number
-        pumpNumber = atoi(strtokIndx);
-        strtokIndx = strtok(NULL, ",");
-        pwmVal = atoi(strtokIndx);  // Get the PWM val
-
-        setPumpSpeeds(pumpNumber, pwmVal);
+        int boardNumber;
+        int relayNumber;
+        int relayPower;
+        char* strtokIndx;  
+        char buff[20];
+    
+        strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character 
+        strtokIndx = strtok(NULL, ":");                             // Get the board number
+        boardNumber = atoi(strtokIndx);
+        strtokIndx = strtok(NULL, ":");                             // Get the relay number
+        relayNumber = atoi(strtokIndx);  
+        strtokIndx = strtok(NULL, ":");                             // Get the relay power state
+        relayPower = atoi(strtokIndx);
+        
+        triggerRelay(boardNumber, relayNumber, relayPower);
+        
+        sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
+        Serial3.println(buff);
         break;
       }
   }
-  newData = false;
 }
 void checkSoilWaterLvl() {
   int numSensors = NUM_ELEMENTS(soilWaterSensorPin);
@@ -531,7 +515,7 @@ void checkSoilWaterLvl() {
 void readSoilCapacitanceSensors(const int sensorPins[], int numSensors) {
   for (int i = 0; i < numSensors; i++) {
     int sensorValue = analogRead(sensorPins[i]);
-    Serial.print("Sensor ");
+    Serial.print("Soil Sensor ");
     Serial.print(i + 1);
     Serial.print(" reading: ");
     Serial.println(sensorValue);
@@ -540,7 +524,7 @@ void readSoilCapacitanceSensors(const int sensorPins[], int numSensors) {
 }
 void checkTDSSensor() {
   readTDSSensor();
-  Serial.print("TDS Value:");
+  Serial.print("TDS Value: ");
   Serial.print(tdsValue, 0);
   Serial.println("ppm");
   
@@ -588,4 +572,18 @@ float getMedianNum(int* tdsValues, int numValues) {
   }
 
   return medianValue;
+}
+void triggerRelay(int boardNumber, int relayNumber, int relayTrigger)
+{
+    char buff[50];
+    sprintf(buff, "Triggering board#:%d, relay#:%d, state: %d",boardNumber,relayNumber,relayTrigger);
+    Serial.println(buff);
+    if (relayTrigger == 1)
+    {
+      digitalWrite(relayPins[boardNumber][relayNumber], LOW); // Turn relay ON
+    }
+    else if (relayTrigger == 0)
+    {
+      digitalWrite(relayPins[boardNumber][relayNumber], HIGH); // Turn relay OFF
+    }
 }

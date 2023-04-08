@@ -109,13 +109,16 @@ const int dosingPumpEnablePin[6]
 {
   19, 33, 26, 14, 13, 23
 };
+unsigned long dosingPumpPeriod[6];                   // Array of modifiable "pump on" times that are sent by Home Assistant. These determine how long to keep pump on before shutting off.
+unsigned long dosingPumpMillis[6]; 
 
 // GPIO Pin numbers for PWM
 const int dosingPumpPWMpin[6]
 {
   18, 32, 25, 27, 12, 5
 };
-const int pwmNoctuaFanPin = 15;
+const int pwmNoctuaFanPin = 34;
+const int pwmNOCTUA = 125;                          // This is the PWM rate for the noctua fan in the control box. It never changes.
 
 // PWM properties
 const int freq = 5000;
@@ -167,8 +170,6 @@ boolean newData = false;                            //Is there new data coming i
 boolean stopPHReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
 boolean stopTDSReadings = false;                       // I set this flag to tell system to stop taking readings at certain points when calibrating sensors to avoid errors.
 
-const int pwmNoctuaFanPin = 34;//15;
-const int pwmNOCTUA = 125;                          // This is the PWM rate for the noctua fan in the control box. It never changes.
 
 void setup_wifi()
 {
@@ -200,9 +201,9 @@ void callback(char* topic, byte* payload, unsigned int length)
 
   if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
   {
-    Serial2.print("<Relay:");               // Print this command to the Mega since it handles the relays.
-    Serial2.print(payloadStr);
-    Serial2.println('>');
+    Serial1.print("<Relay:");               // Print this command to the Mega since it handles the relays.
+    Serial1.print(payloadStr);
+    Serial1.println('>');
   }
 
   /***************** CALLBACK: Dosing *****************/

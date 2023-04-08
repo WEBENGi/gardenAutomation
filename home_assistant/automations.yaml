@@ -42,7 +42,7 @@
     minutes: /1
   condition:
   - condition: template
-    value_template: '{{ (float(states(''sensor.atlas_ph''))) >= (float(states(''input_number.target_ph_input''))
+    value_template: '{{ (float(states(''sensor.ph''))) >= (float(states(''input_number.target_ph_input''))
       + 0.1) }}'
   - condition: state
     entity_id: switch.relay_4ch_1_1
@@ -60,7 +60,7 @@
     minutes: /1
   condition:
   - condition: template
-    value_template: '{{ (float(states(''sensor.atlas_ph''))) <= (float(states(''input_number.target_ph_input''))
+    value_template: '{{ (float(states(''sensor.ph''))) <= (float(states(''input_number.target_ph_input''))
       - 0.1) }}'
   - condition: state
     entity_id: switch.relay_4ch_1_1
@@ -150,7 +150,7 @@
     service: input_number.set_value
   - data_template:
       entity_id: input_number.reading1
-      value: '{{ states(''sensor.atlas_ph'') }}'
+      value: '{{ states(''sensor.ph'') }}'
     service: input_number.set_value
   mode: single
 - id: 12lightsoff

@@ -101,15 +101,6 @@ sensor:
     unit_of_measurement: 'Liters'
     state_topic: "feedback/waterLevel"
     icon: mdi:car-coolant-level
-  - platform: mqtt                          # Mixing res scale calibration messages
-    name: "HX711 Cal"
-    state_topic: "feedback/hx711"
-  - platform: mqtt                          # Feedback from lightmeasure NodeMCU
-    name: "LightMeasure Feedback"
-    state_topic: "feedback/lightMeasure"
-  - platform: mqtt
-    name: "LightMeasure Recording"          # Actual measurements from NodeMCU
-    state_topic: "feedback/record"   
 # TEMPLATE SENSORS    
   - platform: template
     sensors:
@@ -235,7 +226,7 @@ switch:
     state_off: "1:3:0"
 # MQTT (DOSING PUMPS)       #Pump numbers match indexes in arrays in ESP32 code. 0 = pH Down, 1 = CalMag, 2 = Micro, 3 = Bloom, 4 = Grow, 5 = pH Up
   - platform: mqtt
-    name: "pH Down Pump"
+    name: "pH Down Pump (Pump 1)"
     state_topic: "feedback/dosing"
     command_topic: "control/dosing"
     payload_on: "0:60000"   #Format is <pumpNumber><onTime(in milliseconds)>... Sending 60000 means the pump can only run for 1 minute max when turned on manually, to prevent damage.
@@ -243,7 +234,7 @@ switch:
     state_on: "0:1"         #Format is <pumpNumber><state> (1 = on, 0 = off)
     state_off: "0:0"
   - platform: mqtt
-    name: "CalMag Pump"
+    name: "CalMag Pump (Pump 2)"
     state_topic: "feedback/dosing"
     command_topic: "control/dosing"
     payload_on: "1:60000"
@@ -251,7 +242,7 @@ switch:
     state_on: "1:1"
     state_off: "1:0"
   - platform: mqtt
-    name: "Micro Pump"
+    name: "Micro Pump (Pump 3)"
     state_topic: "feedback/dosing"
     command_topic: "control/dosing"
     payload_on: "2:60000"
@@ -259,7 +250,7 @@ switch:
     state_on: "2:1"
     state_off: "2:0"
   - platform: mqtt
-    name: "Bloom Pump"
+    name: "Bloom Pump (Pump 4)"
     state_topic: "feedback/dosing"
     command_topic: "control/dosing"
     payload_on: "3:60000"
@@ -267,7 +258,7 @@ switch:
     state_on: "3:1"
     state_off: "3:0"
   - platform: mqtt
-    name: "Grow Pump"
+    name: "Grow Pump (Pump 5)"
     state_topic: "feedback/dosing"
     command_topic: "control/dosing"
     payload_on: "4:60000"
@@ -275,7 +266,7 @@ switch:
     state_on: "4:1"
     state_off: "4:0"
   - platform: mqtt
-    name: "pH Up Pump"
+    name: "pH Up Pump (Pump 6)"
     state_topic: "feedback/dosing"
     command_topic: "control/dosing"
     payload_on: "5:60000"
@@ -330,10 +321,10 @@ input_number:
     icon: mdi:bullseye
     unit_of_measurement: pH
   target_ec_input:
-    name: Target EC
-    min: 0.5
-    max: 2.5
-    step: .1
+    name: Target TDS
+    min: 0
+    max: 200
+    step: 5
     icon: mdi:bullseye
     unit_of_measurement: EC
   grow_ml_per_liter:
@@ -463,55 +454,47 @@ input_number:
     icon: mdi:water-pump
     unit_of_measurement: 'mL'
   dosing_pwm_0_ph_down:
-    name: pH Down PWM
+    name: pH Down PWM (1)
     mode: box
     min: 190
     max: 254
     icon: mdi:speedometer
     unit_of_measurement: 'PWM'
   dosing_pwm_1_calmag:
-    name: CalMag PWM
+    name: CalMag PWM (2)
     mode: box
     min: 190
     max: 254
     icon: mdi:speedometer
     unit_of_measurement: 'PWM'
   dosing_pwm_2_micro:
-    name: Micro PWM
+    name: Micro PWM (3)
     mode: box
     min: 190
     max: 254
     icon: mdi:speedometer
     unit_of_measurement: 'PWM'
   dosing_pwm_3_bloom:
-    name: Bloom PWM
+    name: Bloom PWM (4)
     mode: box
     min: 190
     max: 254
     icon: mdi:speedometer
     unit_of_measurement: 'PWM'
   dosing_pwm_4_grow:
-    name: Grow PWM
+    name: Grow PWM (5)
     mode: box
     min: 190
     max: 254
     icon: mdi:speedometer
     unit_of_measurement: 'PWM'
   dosing_pwm_5_ph_up:
-    name: pH Up PWM
+    name: pH Up PWM (6)
     mode: box
     min: 190
     max: 254
     icon: mdi:speedometer
     unit_of_measurement: 'PWM' 
-# HX711 RES SCALE CALIBRATION FACTOR
-  scale_cal_factor:
-    name: Scale Calibration Factor
-    mode: box
-    min: -1000000
-    max: 0
-    initial: 0
-    icon: mdi:scale     
 
 ################################ BINARY SENSORS ################################
 
@@ -567,11 +550,11 @@ recorder:
       - input_number.bloom_ml_per_liter
       - input_number.humidity_target
       - input_number.nutrient_batch_size
-      - input_number.target_ec_input
+      - input_number.target_tds_input
       - input_number.target_ph_input
       - input_number.temp_target
-      - sensor.atlas_ec
-      - sensor.atlas_ph
+      - sensor.ph
+      - sensor.ph
       - sensor.water_temp
       - switch.ph_down_pump
       - switch.ph_up_pump
