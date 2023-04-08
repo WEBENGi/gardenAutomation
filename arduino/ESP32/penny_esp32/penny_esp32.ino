@@ -17,11 +17,10 @@
     a temperature compensation value for the AS sensors based on the measured temperature of the mixing res solution at a preset interval as well (tempCompPeriod).
 
   - Sensors/Modules Attached:
-    - Relay Module 8 Channel 5V Relay Module for Arduino Raspberry Pi AVR PIC ARM DSP ARM MSP430 TTL Logic Level
-    - Relay Module 4 Channel 5V Relay Module for Arduino Raspberry Pi AVR PIC ARM DSP ARM MSP430 TTL Logic Level
     - Water Temperature Sensor
     - BME280 Temperature, Humidity, Pressure Sensor
-
+   - 3 motor controllers with 2 motors each
+ 
   - Messages to Home Assistant:
     - "feedback/general" - general info / log
     - "feedback/boxTemp" - Temperature of the control box
@@ -45,8 +44,6 @@
     - calibrate/tds - TDS calibration
 
     Messages to MEGA:
-    - <DosingPumpPower:???>
-    - <PumpSpeed:???>
     - <CalibratePH:Cal,(mid,low,high),(7.00,4.00,10.00)>
     - <TDSCalibrate:Cal,dry> / <TDSCalibrate:Cal,low,700> / <TDSCalibrate:Cal,high,2000>
 
@@ -81,29 +78,22 @@
 #include <DallasTemperature.h>
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
-#define PIN_RELAY8_01 17 
-#define PIN_RELAY8_02 25
-#define PIN_RELAY8_03 32
-#define PIN_RELAY8_04 12
-#define PIN_RELAY8_05 4
-#define PIN_RELAY8_06 0
-#define PIN_RELAY8_07 2
-#define PIN_RELAY8_08 23
-#define PIN_RELAY4_01 19
-#define PIN_RELAY4_02 18
-#define PIN_RELAY4_03 17
-#define PIN_RELAY4_04 16
+
+#define PIN_MC_1_ENA 31
+#define PIN_MC_1_ENB 32
+#define PIN_MC_1_IO1 30 
+#define PIN_MC_1_IO3 33  
+#define PIN_MC_2_ENA 51
+#define PIN_MC_2_ENB 52
+#define PIN_MC_2_IO1 50
+#define PIN_MC_2_IO3 53
+#define PIN_MC_3_ENA 36
+#define PIN_MC_3_ENB 35  
+#define PIN_MC_3_IO1 37
+#define PIN_MC_3_IO3 34
 
 //#define NOCTUA 6   
 
-// Relays
-int relayPins[2][8]
-{
-  {PIN_RELAY8_01, PIN_RELAY8_02, PIN_RELAY8_03, PIN_RELAY8_04, PIN_RELAY8_05, PIN_RELAY8_06, PIN_RELAY8_07, PIN_RELAY8_08},              
-  // 8 Chan Relay Board: [0]=plug switch 3 , [1]=plug switch 2 , [2]=plug switch 1 , [3]=Solenoid 5 , [4]=Solenoid 4 , [5]=Solenoid 3 , [6]=Solenoid 2 , [7]=Solenoid 1
-  {PIN_RELAY4_01, PIN_RELAY4_02, PIN_RELAY4_03, PIN_RELAY4_04}                               
-  // 4 Chan Relay Board: [0]=Stirring fans , [1]=internal cooling fna , [2]=plug switch 5 , [3]=plug switch 4
-};
 
 #define PIN_BME_SDA	21
 #define PIN_BME_SDL	22
@@ -114,8 +104,28 @@ int relayPins[2][8]
 #define PIN_ESPMINI_TX0	3
 #define PIN_ESPMINI_RX0	1
 
+// GPIO Pin numbers for Enable
+const int dosingPumpEnablePin[6]
+{
+  19, 33, 26, 14, 13, 23
+};
+
+// GPIO Pin numbers for PWM
+const int dosingPumpPWMpin[6]
+{
+  18, 32, 25, 27, 12, 5
+};
+const int pwmNoctuaFanPin = 15;
+
+// PWM properties
 const int freq = 5000;
 const int resolution = 8;
+const int pwmChannel[7]                       // This array has 7 due to 6 Dosing pumps + the noctua fan in the control box. Noctua pwm rate never changes though.
+{
+  0, 1, 2, 3, 4, 5, 6
+};
+int pumpSpeeds[6];
+
 #define PIN_PWM_FAN	34 
 
 #define ONE_WIRE_BUS 32 // PIN_WATER_TEMP_SENSOR
@@ -185,44 +195,48 @@ void callback(char* topic, byte* payload, unsigned int length)
     memcpy(payloadStr, payload, length);
     payloadStr[length + 1] = '\0';
 
-    /***************** CALLBACK: 8-Channel Relay Board (In Control Box) *****************/
+ 
+  /***************** CALLBACK: 8-Channel Relay Board (In Control Box) *****************/
 
-    if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
-    {
-      int boardNumber;
-      int relayNumber;
-      int relayPower;
-      char* strtokIndx;
-      char buff[20];
+  if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
+  {
+    Serial2.print("<Relay:");               // Print this command to the Mega since it handles the relays.
+    Serial2.print(payloadStr);
+    Serial2.println('>');
+  }
 
-      strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character
-      strtokIndx = strtok(NULL, ":");                             // Get the board number
-      boardNumber = atoi(strtokIndx);
-      strtokIndx = strtok(NULL, ":");                             // Get the relay number
-      relayNumber = atoi(strtokIndx);
-      strtokIndx = strtok(NULL, ":");                             // Get the relay power state
-      relayPower = atoi(strtokIndx);
+  /***************** CALLBACK: Dosing *****************/
+  if (strcmp(topic, "control/dosing") == 0)   // Incoming message format will be <PUMP#>:<ONTIME>. ONTIME is in milliseconds.
+  {
+    int pumpNumber;
+    long onTime;
+    char* strtokIndx;
 
-      triggerRelay(boardNumber, relayNumber, relayPower);
+    strtokIndx = strtok(payloadStr, ":");     // Get the pump number
+    pumpNumber = atoi(strtokIndx);
+    strtokIndx = strtok(NULL, ":");
+    onTime = atol(strtokIndx);              // Get the on time
 
-      sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
-      Serial1.println(buff);
-    }
-    // CALLBACK: Dosing
-    if (strcmp(topic, "control/dosing") == 0)   // Incoming message format will be <PUMP#>:<ONTIME>. ONTIME is in milliseconds.
-    {
-        Serial1.print("<DosingPumpPower:");               // Print this command to the Mega since it handles
-        Serial1.print(payloadStr);
-        Serial1.println('>');   
-    }
+    Serial.println(pumpNumber);
+    Serial.println(onTime);
+    setPumpPower(pumpNumber, onTime);
+  }
 
-    // CALLBACK: Pump Speed Adjustments 
-    if (strcmp(topic, "calibrate/dosing") == 0)
-    {
-        Serial1.print("<PumpSpeed:");               // Print this command to the Mega since it handles
-        Serial1.print(payloadStr);
-        Serial1.println('>');   
-    }
+  /***************** CALLBACK: Pump Speed Adjustments *****************/
+
+  if (strcmp(topic, "calibrate/dosing") == 0)
+  {
+    int pumpNumber;
+    int pwmVal;
+    char* strtokIndx;
+
+    strtokIndx = strtok(payloadStr, ":");    // Get the pump number
+    pumpNumber = atoi(strtokIndx);
+    strtokIndx = strtok(NULL, ",");
+    pwmVal = atoi(strtokIndx);              // Get the PWM val
+
+    setPumpSpeeds(pumpNumber, pwmVal);
+  }
   
     // CALLBACK: pH Calibration 
     if (strcmp(topic, "calibrate/ph") == 0)           // pH cal values of 7.00, 4.00, and 10.00 are hard coded to match Atlas calibration solutions. Change these if you're using different solutions.
@@ -372,14 +386,13 @@ void setup()
     ledcSetup(PIN_PWM_FAN, freq, resolution);
     ledcAttachPin(PIN_PWM_FAN, 1);///pwmChannel[6]);
     ledcWrite(1,125);//pwmChannel[NOCTUA], 125);
-    for (unsigned int i = 0; i < 2; i++)
+  for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
+  {
+    if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
     {
-      for (unsigned int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
-      {
-        pinMode(relayPins[i][j], OUTPUT);
-        digitalWrite(relayPins[i][j], HIGH);
-      }
+      setPumpPower(i, 0);                                                                               // Shut it off by setting timer to 0.
     }
+  }
 }
 
 void loop()                                                                           // I'm using millis() to try to keep my loop running as fast as possible. I tried to avoid having any "delay(x)" lines, which block the program.
@@ -506,7 +519,7 @@ void processSerialData()
     {
       char* strtokIndx;
       int waterSensorNumber;
-      long waterSensorValue;
+      int waterSensorValue;
       strtokIndx = strtok(receivedChars, ":");  
       waterSensorNumber = atoi(strtokIndx);                    // Skip the first segment 
       strtokIndx = strtok(NULL, ":");
@@ -623,48 +636,32 @@ void getWaterLevel()
   dtostrf(bme.readAltitude(SEALEVELPRESSURE_HPA), 3, 1, bmeBuffer);
   client.publish("feedback/boxSeaLevel", bmeBuffer);
 }
-void triggerRelay(int boardNumber, int relayNumber, int relayTrigger)
-{
-  char buff[50];
-  sprintf(buff, "Triggering board#:%d, relay#:%d, state: %d",boardNumber,relayNumber,relayTrigger);
-  Serial.println(buff);
-  if (relayTrigger == 1)
-  {
-    digitalWrite(relayPins[boardNumber][relayNumber], LOW); // Turn relay ON
-  }
-  else if (relayTrigger == 0)
-  {
-    digitalWrite(relayPins[boardNumber][relayNumber], HIGH); // Turn relay OFF
-  }
-}
-/*
- *       case 'R':                                                     // If message starts with "R", it's for relays. Message format is "Relay:<BOARD#>:<RELAY#>:<STATUS>". Example: "Relay:0:4:1"
-        {
-          int boardNumber;
-          int relayNumber;
-          int relayPower;
-          char* strtokIndx;
-          char buff[20];
-
-          strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character
-          strtokIndx = strtok(NULL, ":");                             // Get the board number
-          boardNumber = atoi(strtokIndx);
-          strtokIndx = strtok(NULL, ":");                             // Get the relay number
-          relayNumber = atoi(strtokIndx);
-          strtokIndx = strtok(NULL, ":");                             // Get the relay power state
-          relayPower = atoi(strtokIndx);
-
-          triggerRelay(boardNumber, relayNumber, relayPower);
-
-          sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
-          Serial3.println(buff);
-          break;
-        }
-
- */
 float calculate_pH(float voltage, float calib_volt_7, float calib_volt_4, float calib_volt_10) {
   float slope = (7.0 - 4.0) / (calib_volt_7 - calib_volt_4);
   float intercept = 7.0 - slope * calib_volt_7;
   float pH = slope * voltage + intercept;
   return pH;
+}
+void setPumpSpeeds(int pumpNumber, int pumpSpeed)
+{
+  ledcWrite(pwmChannel[pumpNumber], pumpSpeed);
+}
+
+void setPumpPower(int pumpNumber, long onTime)
+{
+  char buff[5];
+  digitalWrite(dosingPumpEnablePin[pumpNumber], onTime);           // If onTime is > 0, write the pin high. Otherwise write it low.
+  if (onTime > 0)
+  {
+    dosingPumpMillis[pumpNumber] = millis();                      // If pump is being turned on, start the timer
+    dosingPumpPeriod[pumpNumber] = onTime;
+  }
+  else
+  {
+    dosingPumpMillis[pumpNumber] = 0;                           // If pump is being turned off, zero millis/period out.
+    dosingPumpPeriod[pumpNumber] = 0;
+  }
+  sprintf(buff, "%d:%d", pumpNumber, onTime > 0);
+  Serial.println(buff);
+  client.publish("feedback/dosing", buff);                        // Send feedback (<PUMP#>:<STATE>)
 }
