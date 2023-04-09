@@ -293,6 +293,7 @@ void checkWaterLvl2() {
   distance = duration * 0.034 / 2;
   // f = distance;
 
+
   // Calculate the water level based on the distance and offset
   waterLevel = distance - waterLevel2Offset;
 
