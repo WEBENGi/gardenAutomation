@@ -183,7 +183,7 @@ void loop() {
   
   for (int i = 0; i < 2; i++)
   {
-    for (int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
+    for (unsigned int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
     {
       pinMode(relayPins[i][j], OUTPUT);
       digitalWrite(relayPins[i][j], HIGH);
@@ -440,8 +440,9 @@ void processSerialData() {
   switch (commandChar) {
     case 'C':  // If the message from the ESP32 starts with a "C", it's related to Calibrate pH.
       {
-        char* strtokIndx;
-        strtokIndx = strtok(receivedChars, ":");
+        //char* strtokIndx;
+        //strtokIndx = 
+        strtok(receivedChars, ":");
         cmd = strtok(NULL, ":");
         if (cmd[0] == 'C' || cmd[0] == 'R') {
           waterPHPeriod = 1400;  // If a command has been sent to calibrate or take a reading we wait 1400ms so that the circuit has time to take the reading.
@@ -461,9 +462,9 @@ void processSerialData() {
       }
     case 'T':  // If the message from the ESP32 starts with a "1", it's related to EC.
       {
-        char* strtokIndx;
-        
-        strtokIndx = strtok(receivedChars, ":");
+        //char* strtokIndx;
+        //strtokIndx = 
+        strtok(receivedChars, ":");
         cmd = strtok(NULL, ":");
         if (cmd[0] == 'C' || cmd[0] == 'R') {
           waterTDSPeriod = 1400;  // If a command has been sent to calibrate or take a reading we wait 1400ms so that the circuit has time to take the reading.
