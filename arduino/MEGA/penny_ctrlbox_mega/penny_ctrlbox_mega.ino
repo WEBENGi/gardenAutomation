@@ -28,6 +28,7 @@
   - Messages expected from ESP32:
     - <CalibratePH:PAYLOAD>
     - <TDSCalibrate:PAYLOAD>
+    Relay:<BOARD#>:<RELAY#>:<STATUS>"
   - TODO:
     - How to calculate water amounts with ultrasonic?
     - Calibrate PH
@@ -42,45 +43,45 @@
 
 //placeholders for the pins
 
-#define WATER_LEAK_SENSOR_1 A14  // should this be analog?
-#define PIN_RELAY8_01 17 
-#define PIN_RELAY8_02 25
-#define PIN_RELAY8_03 32
-#define PIN_RELAY8_04 12
-#define PIN_RELAY8_05 4
-#define PIN_RELAY8_06 0
-#define PIN_RELAY8_07 2
-#define PIN_RELAY8_08 23
-#define PIN_RELAY4_01 19
-#define PIN_RELAY4_02 18
-#define PIN_RELAY4_03 17
-#define PIN_RELAY4_04 16
+#define WATER_LEAK_SENSOR_1 34  // should this be analog?
+#define PIN_RELAY8_01 43 
+#define PIN_RELAY8_02 42
+#define PIN_RELAY8_03 41
+#define PIN_RELAY8_04 40
+#define PIN_RELAY8_05 39
+#define PIN_RELAY8_06 38
+#define PIN_RELAY8_07 37
+#define PIN_RELAY8_08 36
+#define PIN_RELAY4_01 47
+#define PIN_RELAY4_02 46
+#define PIN_RELAY4_03 45
+#define PIN_RELAY4_04 44
 
-#define ANALOG_PIN_SOIL_01 A4
-#define ANALOG_PIN_SOIL_02 A5
-#define ANALOG_PIN_SOIL_03 A6
-#define ANALOG_PIN_SOIL_04 A7
-#define ANALOG_PIN_SOIL_05 A8
-#define ANALOG_PIN_SOIL_06 A9
-#define ANALOG_PIN_SOIL_07 A10
-#define ANALOG_PIN_SOIL_08 A11
-#define ANALOG_PIN_SOIL_09 A12
-//#define ANALOG_PIN_SOIL_10 13 Not used yet
+#define ANALOG_PIN_SOIL_01 A0
+#define ANALOG_PIN_SOIL_02 A1
+#define ANALOG_PIN_SOIL_03 A2
+#define ANALOG_PIN_SOIL_04 A3
+#define ANALOG_PIN_SOIL_05 A4
+#define ANALOG_PIN_SOIL_06 A5
+#define ANALOG_PIN_SOIL_07 A6
+#define ANALOG_PIN_SOIL_08 A7
+#define ANALOG_PIN_SOIL_09 A8
+//#define ANALOG_PIN_SOIL_10 A9 Not used yet
 
-#define PIN_SOIL_FLOOD 48
-#define PIN_PH_PO_SENSOR A3
-#define PIN_PH_DO_SENSOR A2
-#define PIN_PH_TO_SENSOR A1
-#define PIN_TDS_SENSOR A15
-#define PIN_FLOAT_VALVE 49
+#define PIN_SOIL_FLOOD 52
+#define PIN_PH_PO_SENSOR A13
+#define PIN_PH_DO_SENSOR A15
+#define PIN_PH_TO_SENSOR A14
+#define PIN_TDS_SENSOR A12
+#define PIN_FLOAT_VALVE 53
 
-#define PH_SENSOR_RX_PIN 2
-#define PH_SENSOR_TX_PIN 3
+//#define PH_SENSOR_RX_PIN 2
+//#define PH_SENSOR_TX_PIN 3
 
-#define PIN_US_DISTANCE_1_TRIG 16
-#define PIN_US_DISTANCE_1_ECHO 17
-#define PIN_US_DISTANCE_2_TRIG 18
-#define PIN_US_DISTANCE_2_ECHO 19
+#define PIN_US_DISTANCE_1_TRIG 49
+#define PIN_US_DISTANCE_1_ECHO 48
+#define PIN_US_DISTANCE_2_TRIG 51
+#define PIN_US_DISTANCE_2_ECHO 50
 
 // Relays
 int relayPins[2][8]
@@ -502,13 +503,15 @@ void processSerialData() {
         strtokIndx = strtok(NULL, ":");                             // Get the relay power state
         relayPower = atoi(strtokIndx);
         
-        triggerRelay(boardNumber, relayNumber, relayPower);
+         triggerRelay(boardNumber, relayNumber, relayPower);
         
         sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
         Serial3.println(buff);
+        Serial.println(buff);
         break;
       }
   }
+  newData = false;
 }
 void checkSoilWaterLvl() {
   int numSensors = NUM_ELEMENTS(soilWaterSensorPin);

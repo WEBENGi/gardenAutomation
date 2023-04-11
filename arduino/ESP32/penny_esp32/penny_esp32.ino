@@ -46,7 +46,7 @@
     Messages to MEGA:
     - <CalibratePH:Cal,(mid,low,high),(7.00,4.00,10.00)>
     - <TDSCalibrate:Cal,dry> / <TDSCalibrate:Cal,low,700> / <TDSCalibrate:Cal,high,2000>
-
+    - <Relay:<BOARD#>:<RELAY#>:<STATUS>
   - Messages from MEGA:
     - <WL:X:YY.YY> - Water level # (in cm)
     - <TDS:XX.XX> - TDS (in ppm)
@@ -79,25 +79,25 @@
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 
-#define PIN_MC_1_ENA 31
-#define PIN_MC_1_ENB 32
-#define PIN_MC_1_IO1 30 
-#define PIN_MC_1_IO3 33  
-#define PIN_MC_2_ENA 51
-#define PIN_MC_2_ENB 52
-#define PIN_MC_2_IO1 50
-#define PIN_MC_2_IO3 53
-#define PIN_MC_3_ENA 36
-#define PIN_MC_3_ENB 35  
-#define PIN_MC_3_IO1 37
-#define PIN_MC_3_IO3 34
+#define PIN_MC_1_ENA 2
+#define PIN_MC_1_ENB 12
+#define PIN_MC_1_IO1 0 
+#define PIN_MC_1_IO3 4  
+#define PIN_MC_2_ENA 13
+#define PIN_MC_2_ENB 33
+#define PIN_MC_2_IO1 14
+#define PIN_MC_2_IO3 34
+#define PIN_MC_3_ENA 35
+#define PIN_MC_3_ENB 36  
+#define PIN_MC_3_IO1 39
+#define PIN_MC_3_IO3 26
 
 //#define NOCTUA 6   
 
 
 #define PIN_BME_SDA	21
 #define PIN_BME_SDL	22
-#define PIN_BME_INT	35
+//#define PIN_BME_INT	35
 
 //#define PIN_WATER_TEMP_SENSOR 32
 
@@ -117,7 +117,7 @@ const int dosingPumpPWMpin[6]
 {
   18, 32, 25, 27, 12, 5
 };
-const int pwmNoctuaFanPin = 34;
+const int pwmNoctuaFanPin = 32;
 const int pwmNOCTUA = 125;                          // This is the PWM rate for the noctua fan in the control box. It never changes.
 
 // PWM properties
