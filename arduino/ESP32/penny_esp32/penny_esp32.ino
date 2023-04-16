@@ -31,8 +31,8 @@
     - "feedback/ph" - pH of the mixing res solution
     - "feedback/tds" - TDS of the mixing res solution
     - "feedback/relays" - State of the relays
-    - "feedback/waterLevel" - Waterlevel (ultrasonic)
-    - "feedback/soilMoisture" - State of the Soil moisture (capacitive) 
+    - "feedback/water_level/sensor<#>" - Waterlevel (ultrasonic)
+    - "feedback/soil_moisture/sensor<#>" - State of the Soil moisture (capacitive) 
     - "feedback/flood" - State of the flood sensor
     - "feedback/waterLevelFloat" - State of the water level float sensor (Drainage Bucket)
     
@@ -76,6 +76,7 @@
 #include <Adafruit_BME280.h>
 #include <PubSubClient.h>
 #include <DallasTemperature.h>
+#include <string.h> // Include this header for the strlen() and strchr() functions
 
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 
@@ -96,13 +97,13 @@
 
 
 #define PIN_BME_SDA	21
-#define PIN_BME_SDL	22
+#define PIN_BME_SCL	22
 //#define PIN_BME_INT	35
 
 //#define PIN_WATER_TEMP_SENSOR 32
 
-#define PIN_ESPMINI_TX0	3
-#define PIN_ESPMINI_RX0	1
+#define PIN_ESPMINI_TX0	1
+#define PIN_ESPMINI_RX0	3
 
 // GPIO Pin numbers for Enable
 const int dosingPumpEnablePin[6]
@@ -156,9 +157,15 @@ unsigned long phPeriod = 5000;                    // How long to wait, in millis
 unsigned long tdsPeriod = 5000;                    // How long to wait, in milliseconds, between polling tds sensor for values
 
 // WiFi/MQTT/Serial
-char ssid[]= "YOUR___SSID";
-const char* password = "YOUR___PASS";
-const char* mqtt_server = "YOUR___MQTTSERVERIP";
+char ssid[]= "Penny Land";
+const char* password = "Apollo is the best!";
+const char* mqtt_server = "192.168.1.142";
+const int mqtt_port = 1883;
+/*const char* mqtt_user = "mqtt.user";
+const char* mqtt_password = "dbzdbz";*/
+const char* mqtt_user = "esp32.penny";
+const char* mqtt_password = "dbzdbz131";
+
 WiFiClient espClient;
 PubSubClient client(espClient);
 const byte numChars = 100;
@@ -195,8 +202,10 @@ void callback(char* topic, byte* payload, unsigned int length)
     char payloadStr[length + 1];              // Create a char array that's 1 byte longer than the incoming payload to copy it to and make room for the null terminator so it can be treated as string.
     memcpy(payloadStr, payload, length);
     payloadStr[length + 1] = '\0';
-
- 
+    Serial.print("Callback--");
+    Serial.print(topic);
+    Serial.print("--");
+   Serial.println(payloadStr);
   /***************** CALLBACK: 8-Channel Relay Board (In Control Box) *****************/
 
   if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
@@ -327,7 +336,7 @@ void reconnect()
         if (mqttFailCount <= tooManyFailures)
         {
             Serial.print("Attempting MQTT connection...");
-            if (client.connect("YOUR___ID", "YOUR___USERNAME", "YOUR___PASSWORD"))
+            if (client.connect("ESP32Client", mqtt_user, mqtt_password))
             {
                 delay(1000);        
                 client.publish("feedback/general", "Garden controller connecting...");
@@ -337,9 +346,10 @@ void reconnect()
 
                 client.subscribe("control/relays");
                 client.subscribe("control/dosing");
-                client.subscribe("calibrate/ph");
-                client.subscribe("calibrate/tds");
+                client.subscribe("calibrate/pH");
+                client.subscribe("calibrate/TDS");
                 client.subscribe("calibrate/dosing");
+                Serial.print("Subscribed to MQTT stuff...");
             }
             else
             {
@@ -374,7 +384,7 @@ void setup()
 
     pinMode(BUILTIN_LED, OUTPUT);
     setup_wifi();
-    client.setServer(mqtt_server, 1883);
+    client.setServer(mqtt_server, mqtt_port);
     client.setCallback(callback);
  
     sensors.begin();
@@ -383,10 +393,13 @@ void setup()
     getBoxTemp();
     getBoxHumidity();
 
+ 
     //Configure LED PWM functionalitites
     ledcSetup(PIN_PWM_FAN, freq, resolution);
+   
     ledcAttachPin(PIN_PWM_FAN, 1);///pwmChannel[6]);
-    ledcWrite(1,125);//pwmChannel[NOCTUA], 125);
+//     return;
+ //   ledcWrite(1,125);//pwmChannel[NOCTUA], 125);
   for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
   {
     if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
@@ -435,13 +448,113 @@ void loop()                                                                     
         Serial1.println("<T:R>");
         tdsMillis = millis();
     }
-
+    Serial.println("looping...1");
     recvWithStartEndMarkers();                                            // Gather data sent from Mega over serial
+ //   recvWithStartEndMarkers2();                                            // Allow for direct input
+ //   recvWithStartEndMarkers3();                                            // Allow for direct input
+ Serial.println("looping2...");
     processSerialData();
+    Serial.println("looping3...");
     client.loop();                                                       // MQTT client loop is required at end of void loop().
+    Serial.println("looping...");
 }
 
 void recvWithStartEndMarkers()                                        // Function to receive serial data from Mega in format of "<MESSAGE>". Thanks Robin2!
+{
+  static boolean recvInProgress = false;
+  static byte ndx = 0;
+  char startMarker = '<';
+  char endMarker = '>';
+  char rc;
+
+  while (Serial2.available() > 0 && newData == false)
+  {
+    rc = Serial2.read();
+
+    if (recvInProgress == true)
+    {
+      if (rc != endMarker)
+      {
+        receivedChars[ndx] = rc;
+        ndx++;
+        if (ndx >= numChars)
+        {
+          ndx = numChars - 1;
+        }
+      }
+      else
+      {
+        receivedChars[ndx] = '\0'; //Terminate the string
+        recvInProgress = false;
+        ndx = 0;
+        newData = true;
+      }
+    }
+
+    else if (rc == startMarker)
+    {
+      recvInProgress = true;
+    }
+  }
+}
+
+void recvWithStartEndMarkers3()
+{
+
+    static boolean recvInProgress = false;
+    static byte ndx = 0;
+    char startMarker = '{';
+    char endMarker = '}';
+    char rc;
+    char separator = '|';
+
+    while (Serial.available() > 0 && newData == false)
+    {
+        rc = Serial.read();
+
+        if (recvInProgress == true)
+        {
+            if (rc != endMarker)
+            {
+                receivedChars[ndx] = rc;
+                ndx++;
+                if (ndx >= numChars)
+                {
+                    ndx = numChars - 1;
+                }
+            }
+            else
+            {
+                receivedChars[ndx] = '\0'; // Terminate the string
+                recvInProgress = false;
+                ndx = 0;
+                newData = true;
+
+                // Extract topic and payload from receivedChars
+                char* separatorPos = strchr(receivedChars, separator);
+                if (separatorPos != NULL)
+                {
+                    // Null-terminate the topic and get the payload
+                    *separatorPos = '\0';
+                    char* topic = receivedChars;
+                    char* payload = separatorPos + 1;
+
+                    // Call the callback function when all data is received
+                    callback(topic, (byte*)payload, strlen(payload));
+                      Serial.println("recv3");
+                  newData = false;
+                }
+            }
+        }
+        else if (rc == startMarker)
+        {
+            recvInProgress = true;
+        }
+    }
+}
+
+
+void recvWithStartEndMarkers2()                                        // Function to receive serial data from Mega in format of "<MESSAGE>". Thanks Robin2!
 {
     static boolean recvInProgress = false;
     static byte ndx = 0;
@@ -449,9 +562,9 @@ void recvWithStartEndMarkers()                                        // Functio
     char endMarker = '>';
     char rc;
 
-    while (Serial1.available() > 0 && newData == false)
+    while (Serial.available() > 0 && newData == false)
     {
-        rc = Serial1.read();
+        rc = Serial.read();
 
         if (recvInProgress == true)
         {
@@ -485,9 +598,11 @@ void processSerialData()
   if (newData != true){return;} 
   client.publish("feedback/debug", receivedChars);
   char commandChar = receivedChars[0];
+  Serial.print("Data Received: ");
+  Serial.println(receivedChars);
   switch (commandChar)
   {
-    case 'H': // If message starts with 'P' (pH)
+    case 'H': // If message starts with 'H' (pH)
     {
       char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier
@@ -519,15 +634,20 @@ void processSerialData()
     case 'W':
     {
       char* strtokIndx;
+      char* waterSensorNumberStr;
+      char* waterSensorValueStr;
+      char* topic;
       int waterSensorNumber;
       int waterSensorValue;
-      strtokIndx = strtok(receivedChars, ":");  
+      waterSensorNumberStr = strtok(receivedChars, ":");
       waterSensorNumber = atoi(strtokIndx);                    // Skip the first segment 
-      strtokIndx = strtok(NULL, ":");
+      waterSensorValueStr = strtok(NULL, ":");
       waterSensorValue = atol(strtokIndx);  
       sprintf(strtokIndx, "%d:%d", waterSensorNumber, waterSensorValue);
       Serial.println(strtokIndx);
-      client.publish("feedback/waterLevel", strtokIndx);
+      strcpy(topic, "feedback/water_level/sensor");
+      strcat(topic, waterSensorNumberStr);
+      client.publish(topic, waterSensorValueStr);
       break;
     }    
 
@@ -556,17 +676,24 @@ void processSerialData()
     }
     case 'M':
     {
-      char* strtokIndx;
-      int soilMoistureNumber;
-      int moistureReading;
+      //char* strtokIndx;
+      char* soilMoistureNumber;
+      char* moistureReading;
+      char* topic;
 
-      strtokIndx = strtok(receivedChars, ":");                   // Skip the first segment 
-      soilMoistureNumber = atoi(strtokIndx);
-      strtokIndx = strtok(NULL, ":");
-      moistureReading = atol(strtokIndx);   
-      sprintf(strtokIndx, "%d:%d", soilMoistureNumber, moistureReading);
-      Serial.println(strtokIndx);
-      client.publish("feedback/soilMoisture", strtokIndx);     
+      soilMoistureNumber = strtok(receivedChars, ":");                   // Skip the first segment 
+     // soilMoistureNumber = strtokIndx;
+      //strcpy(soilMoistureNumber,strtokIndx);
+      moistureReading = strtok(NULL, ":");
+      //strcpy(moistureReading,strtokIndx);
+      //sprintf(strtokIndx, "%d:%d", soilMoistureNumber, moistureReading);
+      //Serial.println(strtokIndx);
+      strcpy(topic, "feedback/soil_moisture/sensor");
+      strcat(topic, soilMoistureNumber);
+      Serial.print(topic);
+      Serial.print(">>");
+      Serial.println(moistureReading);
+      client.publish(topic, moistureReading);     
       break;
     }
     case 'P':
@@ -618,19 +745,25 @@ void getWaterTemp()
 void getBoxTemp()
 {
   dtostrf(bme.readTemperature(), 3, 1, bmeBuffer);
+  Serial.print("getboxtemp: ");
+  Serial.println(bmeBuffer);
   client.publish("feedback/boxTemp", bmeBuffer);
 }
 
 void getBoxHumidity()
 {
   dtostrf(bme.readHumidity(), 3, 1, bmeBuffer);
+    Serial.print("getboxhumidity: ");
+  Serial.println(bmeBuffer);
   client.publish("feedback/boxHumidity", bmeBuffer);
 }
 
 void getBoxPressure()
 {
   dtostrf(bme.readPressure() / 100.0F, 3, 1, bmeBuffer);
-  client.publish("feedback/boxPressure", bmeBuffer);
+    Serial.print("getboxpressure: ");
+  Serial.println(bmeBuffer);
+  client.publish("feedback/boxpressure", bmeBuffer);
 }
 void getWaterLevel()
 {

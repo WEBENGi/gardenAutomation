@@ -28,14 +28,19 @@
   - Messages expected from ESP32:
     - <CalibratePH:PAYLOAD>
     - <TDSCalibrate:PAYLOAD>
-    Relay:<BOARD#>:<RELAY#>:<STATUS>"
+    - <Relay:<BOARD#>:<RELAY#>:<STATUS>"
   - TODO:
+    - Get flood sensor on an analog pin!
     - How to calculate water amounts with ultrasonic?
     - Calibrate PH
     - Calibrate TDS
     - Calibrate soil moisture
     - Calibrate water level
     - Consolidate the waterlevel functions
+    - HOw long to TDS reset?
+    - Integrate PH sensors Temperature output?
+     - uPPER AND LOWER BOUND CHECKS
+     dISTANCE sensors seemto be 590+ TDS <0
 
 ***********************************************************************************************************************************************/
 
@@ -66,7 +71,7 @@
 #define ANALOG_PIN_SOIL_07 A6
 #define ANALOG_PIN_SOIL_08 A7
 #define ANALOG_PIN_SOIL_09 A8
-//#define ANALOG_PIN_SOIL_10 A9 Not used yet
+#define ANALOG_PIN_SOIL_10 A9
 
 #define PIN_SOIL_FLOOD 52
 #define PIN_PH_PO_SENSOR A13
@@ -80,8 +85,9 @@
 
 #define PIN_US_DISTANCE_1_TRIG 49
 #define PIN_US_DISTANCE_1_ECHO 48
-#define PIN_US_DISTANCE_2_TRIG 51
-#define PIN_US_DISTANCE_2_ECHO 50
+#define PIN_US_DISTANCE_2_TRIG 35 //51
+#define PIN_US_DISTANCE_2_ECHO 34 //50
+//51 could be faulty?
 
 // Relays
 int relayPins[2][8]
@@ -92,8 +98,8 @@ int relayPins[2][8]
   // 4 Chan Relay Board: [0]=Stirring fans , [1]=internal cooling fna , [2]=plug switch 5 , [3]=plug switch 4
 };
 
-#define PIN_MEGA_TX0 1
-#define PIN_MEGA_RX0 2
+#define PIN_MEGA_TX0 14
+#define PIN_MEGA_RX0 15
 
 unsigned long baudRate = 115200;
 
@@ -101,7 +107,7 @@ const float waterLevel1Offset = 0;  // offset in centimeters from the sensor to 
 const float waterLevel2Offset = 0;  // offset in centimeters from the sensor to the water surface
 
 #define VREF 5.0           // analog reference voltage(Volt) of the ADC
-#define SCOUNT 30          // sum of sample point
+#define SCOUNT 20          // sum of sample point
 int analogBuffer[SCOUNT];  // store the analog value in the array, read from ADC
 int analogBufferTemp[SCOUNT];
 int analogBufferIndex = 0, copyIndex = 0;
@@ -136,24 +142,26 @@ unsigned long waterPHMillis;
 bool tdsCalibrateMode = false;
 bool phCalibrateMode = false;
 
-const unsigned long waterLvl1Period = 1000;     // Time in milliseconds between checking nute res water level
-const unsigned long waterLvl2Period = 1000;     // Time in milliseconds between checking nute res water level
+const unsigned long waterLvl1Period = 10000;     // Time in milliseconds between checking nute res water level
+const unsigned long waterLvl2Period = 10000;     // Time in milliseconds between checking nute res water level
 const unsigned long floodPeriod = 10000;        // Time between checking floor moisture sensors for flood
-const unsigned long drainBucketPeriod = 3000;   // Time between checking float sensor in drain basin in tent
-const unsigned long soilWaterLvlPeriod = 1000;  // Time between soil water level checking
-unsigned long waterTDSPeriod = 1000;      // Time between soil water level checking
-unsigned long waterPHPeriod = 1000;       // Time between soil water level checking
+const unsigned long drainBucketPeriod = 30000;   // Time between checking float sensor in drain basin in tent
+const unsigned long soilWaterLvlPeriod = 10000;  // Time between soil water level checking
+unsigned long waterTDSPeriod = 10000;      // Time between checking
+unsigned long waterPHPeriod = 10000;       // Time between checking
 
 /*
 const int pHpin = A0;    // Analog input pin for pH sensor
 const float pHoffset = 0.00;    // pH offset calibration value
 const float pHslope = 1.00;     // pH slope calibration value
 */
+unsigned long int avgValue; // Store the average value from the sensor
+float b;
+int buf[10]; // Buffer for storing sensor readings
 
-const int soilWaterSensorPin[9]{
-  ANALOG_PIN_SOIL_01, ANALOG_PIN_SOIL_02, ANALOG_PIN_SOIL_03, ANALOG_PIN_SOIL_04, ANALOG_PIN_SOIL_05, ANALOG_PIN_SOIL_06, ANALOG_PIN_SOIL_07, ANALOG_PIN_SOIL_08, ANALOG_PIN_SOIL_09
+const int soilWaterSensorPin[10]{
+  ANALOG_PIN_SOIL_01, ANALOG_PIN_SOIL_02, ANALOG_PIN_SOIL_03, ANALOG_PIN_SOIL_04, ANALOG_PIN_SOIL_05, ANALOG_PIN_SOIL_06, ANALOG_PIN_SOIL_07, ANALOG_PIN_SOIL_08, ANALOG_PIN_SOIL_09,ANALOG_PIN_SOIL_10
 };
-//,ANALOG_PIN_SOIL_10;
 
 void setup() {
   Serial3.begin(baudRate);
@@ -168,7 +176,29 @@ void setup() {
   pinMode(PIN_US_DISTANCE_2_ECHO, INPUT);
   pinMode(PIN_FLOAT_VALVE, INPUT_PULLUP);
   pinMode(PIN_TDS_SENSOR, INPUT);
-
+  //Serial.println(NUM_ELEMENTS(relayPins[1]));
+  //Serial.println(NUM_ELEMENTS(relayPins[0]));
+  for (int i = 0; i < 2; i++)
+  {
+  //  Serial.print("i:");
+ //    Serial.println(NUM_ELEMENTS(relayPins[i]));
+    for (unsigned int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
+    {
+      
+  //   Serial.println(j);
+     // Serial.println(relayPins[i][j]);
+      pinMode(relayPins[i][j], OUTPUT);
+      digitalWrite(relayPins[i][j], HIGH);
+    }
+  }
+   /* for (int i = 0; i < 2; i++)
+  {
+    for (unsigned int j = 0; j <= NUM_ELEMENTS(relayPins[i]); j++)
+    {
+      digitalWrite(relayPins[i][j], LOW);
+    }
+  }*/
+  pinMode(PIN_PH_PO_SENSOR, INPUT);
   Serial.println("Setup complete, starting loop!");
 }
 void loop() {
@@ -182,15 +212,8 @@ void loop() {
   recvWithStartEndMarkers();
   processSerialData();
   
-  for (int i = 0; i < 2; i++)
-  {
-    for (unsigned int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
-    {
-      pinMode(relayPins[i][j], OUTPUT);
-      digitalWrite(relayPins[i][j], HIGH);
-    }
-  }
-return;
+
+//return;
   //Check water soil sensors
   if (currentMillis - soilWaterLvlMillis >= soilWaterLvlPeriod) {
     checkSoilWaterLvl();
@@ -229,13 +252,23 @@ return;
   }
 }
 void checkPHSensor() {
+  double currentPH;
   char currentPHStr[10];  // define a buffer to store the ph as a string
-  double currentPH = readPHSensor();
+  currentPH = readPHSensor();
   if (currentPH > 0) {
-    snprintf(currentPHStr, sizeof(currentPHStr), "%.1f", currentPH);
-    Serial3.print("<PH:");
-    Serial3.print(currentPHStr);
-    Serial3.println('>');
+
+  // snprintf(currentPHStr, sizeof(currentPHStr), "%.1f", currentPH);
+  // int ret= sprintf(currentPHStr,"%.1f", currentPH);
+  snprintf(currentPHStr, sizeof(currentPHStr), "%.1f", currentPH);
+
+  Serial3.print("<H:");
+  //Serial3.print(currentPHStr);
+  Serial3.print(currentPH);
+  Serial3.println('>');
+  Serial.print("<H:");
+  //Serial.print(currentPHStr);
+  Serial.print(currentPH);
+  Serial.println('>');
   }
   waterPHMillis = millis();
 }
@@ -264,7 +297,10 @@ void checkWaterLvl1() {
   // Is it really cm?
   Serial.print("Distance1: ");
   Serial.print(distance);
-  Serial.print(" cm, Water level1: ");
+  Serial.print(" cm, ");
+  Serial.print(distance/2.54);
+  Serial.print(" in, ");
+  Serial.print("Water level1: ");
   Serial.print(waterLevelStr);
   Serial.println(" cm");
 
@@ -294,7 +330,7 @@ void checkWaterLvl2() {
   distance = duration * 0.034 / 2;
   // f = distance;
 
-
+//Serial.println(buffer);
   // Calculate the water level based on the distance and offset
   waterLevel = distance - waterLevel2Offset;
 
@@ -302,8 +338,11 @@ void checkWaterLvl2() {
   // print the water level measurement to the serial monitor
   // Is it really cm?
   Serial.print("Distance2: ");
-  Serial.print(distance);
-  Serial.print(" cm, Water level2: ");
+    Serial.print(distance);
+  Serial.print(" cm, ");
+  Serial.print(distance/2.54);
+  Serial.print(" in, ");
+  Serial.print("Water level2: ");
   Serial.print(waterLevelStr);
   Serial.println(" cm");
   if (waterLevel < 0) {
@@ -315,7 +354,41 @@ void checkWaterLvl2() {
   }
   waterLvl2Millis = millis();
 }
-float readPHSensor() {
+float readPHSensor(){
+  Serial.println("Reading PH...");
+  const int pHAnalogPin = PIN_PH_PO_SENSOR;
+   pinMode(pHAnalogPin, INPUT);
+
+  for (int i = 0; i < 10; i++) { // Take 10 samples for better accuracy
+    buf[i] = analogRead(pHAnalogPin);
+    //Serial.println(buf[i]);
+    delay(10);
+  }
+
+  // Sort the buffer values
+  for (int i = 0; i < 9; i++) {
+    for (int j = i + 1; j < 10; j++) {
+      if (buf[i] > buf[j]) {
+        int temp = buf[i];
+        buf[i] = buf[j];
+        buf[j] = temp;
+      }
+    }
+  }
+
+  // Calculate the average value
+  avgValue = 0;
+  for (int i = 2; i < 8; i++) {
+    avgValue += buf[i];
+  }
+  float pHVol = (float)avgValue * 5.0 / 1024 / 6; // Convert the analog value to voltage
+  float pHValue = -5.70 * pHVol + 21.34; // Convert the voltage to pH value using the module's calibration curve
+  //Serial.println(pHVol);
+  //Serial.println(pHValue);
+  return pHValue;
+}
+float readPHSensor2() {
+  Serial.println("Reading PH...");
   // set up the pins
   int toPin = PIN_PH_TO_SENSOR;  // analog input pin for To
   int doPin = PIN_PH_DO_SENSOR;  // analog input pin for Do
@@ -494,13 +567,17 @@ void processSerialData() {
         int relayPower;
         char* strtokIndx;  
         char buff[20];
-    
+       //Serial.println(receivedChars);
         strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character 
+      // Serial.println(strtokIndx);
         strtokIndx = strtok(NULL, ":");                             // Get the board number
+      //   Serial.println(strtokIndx);
         boardNumber = atoi(strtokIndx);
         strtokIndx = strtok(NULL, ":");                             // Get the relay number
+      //   Serial.println(strtokIndx);
         relayNumber = atoi(strtokIndx);  
         strtokIndx = strtok(NULL, ":");                             // Get the relay power state
+      //   Serial.println(strtokIndx);
         relayPower = atoi(strtokIndx);
         
          triggerRelay(boardNumber, relayNumber, relayPower);
@@ -516,25 +593,37 @@ void processSerialData() {
 void checkSoilWaterLvl() {
   int numSensors = NUM_ELEMENTS(soilWaterSensorPin);
   readSoilCapacitanceSensors(soilWaterSensorPin, numSensors);
+  soilWaterLvlMillis = millis();
 }
 void readSoilCapacitanceSensors(const int sensorPins[], int numSensors) {
   for (int i = 0; i < numSensors; i++) {
     int sensorValue = analogRead(sensorPins[i]);
     Serial.print("Soil Sensor ");
-    Serial.print(i + 1);
+    Serial.print(i);
     Serial.print(" reading: ");
-    Serial.println(sensorValue);
-    delay(100);
+    Serial.print(sensorValue);
+    Serial.print(" or ");
+  //Serial.print("Soil Moisture Sensor Voltage: ");
+  Serial.print((float(sensorValue)/1023.0)*3.3); // read sensor
+  Serial.println(" V");
+    delay(1000);
+    return;
   }
 }
 void checkTDSSensor() {
-  readTDSSensor();
+  tdsValue = readTDSSensor();
+  if (tdsValue>-1){
   Serial.print("TDS Value: ");
   Serial.print(tdsValue, 0);
   Serial.println("ppm");
-  
+  Serial3.print("<TDS:");
+  Serial3.print(tdsValue, 0);
+  Serial3.println(">");
+  }
+  waterTDSMillis = millis();
 }
 float readTDSSensor() {
+ // return analogRead(PIN_TDS_SENSOR);
   static unsigned long analogSampleTimepoint = millis();
   if (millis() - analogSampleTimepoint > 40U)  //every 40 milliseconds,read the analog value from the ADC
   {
@@ -542,6 +631,7 @@ float readTDSSensor() {
     analogBuffer[analogBufferIndex] = analogRead(PIN_TDS_SENSOR);  //read the analog value and store into the buffer
     analogBufferIndex++;
     if (analogBufferIndex == SCOUNT) { analogBufferIndex = 0; }
+
   }
   static unsigned long printTimepoint = millis();
   if (millis() - printTimepoint > 800U) {
