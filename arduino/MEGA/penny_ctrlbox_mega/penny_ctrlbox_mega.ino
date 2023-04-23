@@ -51,12 +51,12 @@
 #define WATER_LEAK_SENSOR_1 34  // should this be analog?
 #define PIN_RELAY8_01 43 
 #define PIN_RELAY8_02 42
-#define PIN_RELAY8_03 41
-#define PIN_RELAY8_04 40
-#define PIN_RELAY8_05 39
-#define PIN_RELAY8_06 38
+#define PIN_RELAY8_03 40
+#define PIN_RELAY8_04 36
+#define PIN_RELAY8_05 41  
+#define PIN_RELAY8_06 39 
 #define PIN_RELAY8_07 37
-#define PIN_RELAY8_08 36
+#define PIN_RELAY8_08 38 
 #define PIN_RELAY4_01 47
 #define PIN_RELAY4_02 46
 #define PIN_RELAY4_03 45
@@ -166,6 +166,7 @@ const int soilWaterSensorPin[10]{
 void setup() {
   Serial3.begin(baudRate);
   Serial.begin(baudRate);
+  Serial3.begin(baudRate);
 
   //Why is this the only one starting 0?
   floodStartMillis = 0;
@@ -208,22 +209,10 @@ void loop() {
     Serial.println("Received data: " + receivedData);
   }*/
   currentMillis = millis();
-  recvWithStartEndMarkers2();
+  //recvWithStartEndMarkers2();
   recvWithStartEndMarkers();
   processSerialData();
-  
-
-//return;
-  //Check water soil sensors
-  if (currentMillis - soilWaterLvlMillis >= soilWaterLvlPeriod) {
-    checkSoilWaterLvl();
-  }
-
-  //Drain bucket float sensor
-  if (currentMillis - drainBucketMillis >= drainBucketPeriod) {
-    checkDrainBucket();
-  }
-
+  //return;
   //Ultrasonic sensor 1
   if (currentMillis - waterLvl1Millis >= waterLvl1Period) {
     checkWaterLvl1();
@@ -232,6 +221,15 @@ void loop() {
   //Ultrasonic sensor 2
   if (currentMillis - waterLvl2Millis >= waterLvl2Period) {
     checkWaterLvl2();
+  }
+  //Check water soil sensors
+  if (currentMillis - soilWaterLvlMillis >= soilWaterLvlPeriod) {
+    checkSoilWaterLvl();
+  }
+
+  //Drain bucket float sensor
+  if (currentMillis - drainBucketMillis >= drainBucketPeriod) {
+    checkDrainBucket();
   }
 
   //Check for flood sensors
@@ -250,6 +248,7 @@ void loop() {
   {
     checkPHSensor();
   }
+
 }
 void checkPHSensor() {
   double currentPH;
@@ -457,6 +456,7 @@ void recvWithStartEndMarkers() {
 
     if (recvInProgress == true) {
       if (rc != endMarker) {
+        //Serial.println(rc);
         receivedChars[ndx] = rc;
         ndx++;
         if (ndx >= numChars) {
@@ -509,10 +509,12 @@ void recvWithStartEndMarkers2() {
 void processSerialData() {
   if (newData != true) { return; }
 
-  Serial.print("Received Input: ");
+  Serial.print("Received Input from ESP32: ");
   Serial.println(receivedChars);
+ 
   char commandChar = receivedChars[0];
-  switch (commandChar) {
+ 
+   switch (commandChar) {
     case 'C':  // If the message from the ESP32 starts with a "C", it's related to Calibrate pH.
       {
         //char* strtokIndx;
@@ -525,21 +527,33 @@ void processSerialData() {
           waterPHPeriod = 300;  // If any other command has been sent we wait only 300ms.
         }                       // Send to I2C
         if (cmd[0] != 'T') {
-          char buff[20];
-          dtostrf(readPHSensor(), 6, 3, buff); // Convert myFloat to a string with 3 decimal places and store it in buffer
-
-          sprintf(buff, "<PH:%s>", buff);
+        //  char buff[20];
+        //  dtostrf(readPHSensor(), 6, 3, buff); // Convert myFloat to a string with 3 decimal places and store it in buffer
+                    float value = readPHSensor();
+      
+      char buffer[10]; // Create a buffer to hold the string representation of the value
+      dtostrf(value, 6, 3, buffer); // Convert the value to a string with 6 digits and 2 decimal places
+      String output = "<PH:" + String(buffer) + ">";
+    //String output = String::format("<PH:%.3f>", value); 
+        //  sprintf(buff, "<TDS:%s>", strReading );
           Serial.print("Printing to Serial: ");
-          Serial.println(buff);
-          Serial3.println(buff);
+          Serial.println(output);
+          Serial3.println(output);
+          //sprintf(buff, "<PH:%s>", buff);
+         // Serial.print("Printing to Serial: ");
+          //Serial.println(buff);
+          //Serial3.println(buff);
         }
         break;
       }
     case 'T':  // If the message from the ESP32 starts with a "1", it's related to EC.
       {
+        
         //char* strtokIndx;
+        //char strReading[6];
         //strtokIndx = 
         strtok(receivedChars, ":");
+        //Serial.println(receivedChars);
         cmd = strtok(NULL, ":");
         if (cmd[0] == 'C' || cmd[0] == 'R') {
           waterTDSPeriod = 1400;  // If a command has been sent to calibrate or take a reading we wait 1400ms so that the circuit has time to take the reading.
@@ -548,15 +562,21 @@ void processSerialData() {
         }
 
         if (cmd[0] != 'T') {
-          char buff[20];
-
+         // String buff;
+     //     Serial.println(readTDSSensor());
+     //     newData = false;
+   //      dtostrf(1, 1, 1, strReading);
+//return;
           // dtostrf(floatVar, minimumWidth, numDecimalPlaces, charBuffer)
-          dtostrf(readTDSSensor(), 6, 3, buff); // Convert myFloat to a string with 3 decimal places and store it in buffer
-
-          sprintf(buff, "<TDS:%s>", buff );
+        //  dtostrf(readTDSSensor(), 6, 3, strReading); // Convert myFloat to a string with 3 decimal places and store it in buffer
+          float value = readTDSSensor();
+      char buffer[10]; // Create a buffer to hold the string representation of the value
+      dtostrf(value, 6, 3, buffer); // Convert the value to a string with 6 digits and 2 decimal places
+      String output = "<TDS:" + String(buffer) + ">";
+        //  sprintf(buff, "<TDS:%s>", strReading );
           Serial.print("Printing to Serial: ");
-          Serial.println(buff);
-          Serial3.println(buff);
+          Serial.println(output);
+          Serial3.println(output);
         }
         break;
       }
@@ -565,20 +585,18 @@ void processSerialData() {
         int boardNumber;
         int relayNumber;
         int relayPower;
-        char* strtokIndx;  
+        //char* strtokIndx;  
         char buff[20];
        //Serial.println(receivedChars);
-        strtokIndx = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character 
+        cmd = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character 
       // Serial.println(strtokIndx);
-        strtokIndx = strtok(NULL, ":");                             // Get the board number
+        //strtokIndx = strtok(NULL, ":");                             // Get the board number
       //   Serial.println(strtokIndx);
-        boardNumber = atoi(strtokIndx);
-        strtokIndx = strtok(NULL, ":");                             // Get the relay number
+        boardNumber = atoi(strtok(NULL, ":"));                       // Get the relay number
       //   Serial.println(strtokIndx);
-        relayNumber = atoi(strtokIndx);  
-        strtokIndx = strtok(NULL, ":");                             // Get the relay power state
+        relayNumber = atoi(strtok(NULL, ":"));                        // Get the relay power state
       //   Serial.println(strtokIndx);
-        relayPower = atoi(strtokIndx);
+        relayPower = atoi(strtok(NULL, ":"));
         
          triggerRelay(boardNumber, relayNumber, relayPower);
         
@@ -610,17 +628,20 @@ void readSoilCapacitanceSensors(const int sensorPins[], int numSensors) {
     return;
   }
 }
-void checkTDSSensor() {
+float checkTDSSensor() {
   tdsValue = readTDSSensor();
+  
   if (tdsValue>-1){
   Serial.print("TDS Value: ");
   Serial.print(tdsValue, 0);
   Serial.println("ppm");
+
   Serial3.print("<TDS:");
-  Serial3.print(tdsValue, 0);
+  Serial3.print(tdsValue, 0);  
   Serial3.println(">");
   }
   waterTDSMillis = millis();
+  return tdsValue;
 }
 float readTDSSensor() {
  // return analogRead(PIN_TDS_SENSOR);

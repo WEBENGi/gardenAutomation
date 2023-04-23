@@ -6,7 +6,7 @@
   - The ESP32 is responsible for relaying all data between the Mega and Home Assistant via MQTT, since the Mega has no WiFi capabilities. 
     - client(forpublish) for WIFI+MQTT (connect to WIFI+ MQTT / Home Assistant)
     
-  - All references to Serial are for printing to console only. Serial1 is the actual wired connection to the Mega in the control box.
+  - All references to Serial are for printing to console only. Serial2 is the actual wired connection to the Mega in the control box.
 
   - For OPs pumps, flow rates are as follows: 300ms "on" time = 1mL, 500ms = 1.5mL, 1000ms = 3.25mL, 1500ms = 5mL, 2000ms = 6.75mL, 2500ms = 8.5mL, 3000ms = 10mL.
     - Voltage at V+/V- terminals on 12V PSU was 13.045V when pump flow rates were measured.
@@ -77,46 +77,51 @@
 #include <PubSubClient.h>
 #include <DallasTemperature.h>
 #include <string.h> // Include this header for the strlen() and strchr() functions
+//#include "HardwareSerial.h"
 
+//HardwareSerial Serial2(0); // Using UART2 on ESP32 (pins 16 and 17)
 #define NUM_ELEMENTS(x)  (sizeof(x) / sizeof((x)[0])) // Use to calculate how many elements are in an array
 
-#define PIN_MC_1_ENA 2
-#define PIN_MC_1_ENB 12
-#define PIN_MC_1_IO1 0 
-#define PIN_MC_1_IO3 4  
-#define PIN_MC_2_ENA 13
-#define PIN_MC_2_ENB 33
-#define PIN_MC_2_IO1 14
-#define PIN_MC_2_IO3 34
-#define PIN_MC_3_ENA 35
-#define PIN_MC_3_ENB 36  
-#define PIN_MC_3_IO1 39
-#define PIN_MC_3_IO3 26
+
 
 //#define NOCTUA 6   
 
 
-#define PIN_BME_SDA	21
-#define PIN_BME_SCL	22
-//#define PIN_BME_INT	35
+#define PIN_BME_SDA 21
+#define PIN_BME_SCL 22
+//#define PIN_BME_INT 35
 
 //#define PIN_WATER_TEMP_SENSOR 32
 
-#define PIN_ESPMINI_TX0	1
-#define PIN_ESPMINI_RX0	3
-
+#define PIN_ESPMINI_TX 17 //not used rn
+#define PIN_ESPMINI_RX 16 //not used rn
+#define MY_BAUDRATE 115200
+#define PIN_MC_1_ENA	2
+#define PIN_MC_1_IO1	15
+#define PIN_MC_1_IO3	4
+#define PIN_MC_1_ENB	0
+#define PIN_MC_2_ENA	12
+#define PIN_MC_2_IO1	32
+#define PIN_MC_2_IO3	25
+#define PIN_MC_2_ENB	27
+#define PIN_MC_3_ENA	13
+#define PIN_MC_3_IO1	14
+#define PIN_MC_3_IO3	33
+#define PIN_MC_3_ENB	26
+	
+#define PIN_WATER_TEMP_SENSOR	36
 // GPIO Pin numbers for Enable
-const int dosingPumpEnablePin[6]
+const int dosingPumpPWMpin[6]
 {
-  19, 33, 26, 14, 13, 23
+  PIN_MC_1_ENA, PIN_MC_1_ENB, PIN_MC_2_ENA, PIN_MC_2_ENB, PIN_MC_3_ENA, PIN_MC_3_ENB
 };
 unsigned long dosingPumpPeriod[6];                   // Array of modifiable "pump on" times that are sent by Home Assistant. These determine how long to keep pump on before shutting off.
 unsigned long dosingPumpMillis[6]; 
 
-// GPIO Pin numbers for PWM
-const int dosingPumpPWMpin[6]
+// GPIO Pin numbers for PWM 
+const int dosingPumpEnablePin[6]
 {
-  18, 32, 25, 27, 12, 5
+  PIN_MC_1_IO1, PIN_MC_1_IO3, PIN_MC_2_IO1, PIN_MC_2_IO3,PIN_MC_3_IO1, PIN_MC_3_IO3
 };
 const int pwmNoctuaFanPin = 32;
 const int pwmNOCTUA = 125;                          // This is the PWM rate for the noctua fan in the control box. It never changes.
@@ -130,9 +135,9 @@ const int pwmChannel[7]                       // This array has 7 due to 6 Dosin
 };
 int pumpSpeeds[6];
 
-#define PIN_PWM_FAN	34 
+#define PIN_PWM_FAN 34 
 
-#define ONE_WIRE_BUS 32 // PIN_WATER_TEMP_SENSOR
+#define ONE_WIRE_BUS 39 // PIN_WATER_TEMP_SENSOR
 //#define BUILTIN_LED 2
 #define SEALEVELPRESSURE_HPA (1013.25) // set sea level pressure to 1013.25 hPa
 Adafruit_BME280 bme;
@@ -210,9 +215,9 @@ void callback(char* topic, byte* payload, unsigned int length)
 
   if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
   {
-    Serial1.print("<Relay:");               // Print this command to the Mega since it handles the relays.
-    Serial1.print(payloadStr);
-    Serial1.println('>');
+    Serial2.print("<Relay:");               // Print this command to the Mega since it handles the relays.
+    Serial2.print(payloadStr);
+    Serial2.println('>');
   }
 
   /***************** CALLBACK: Dosing *****************/
@@ -257,7 +262,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<CalibratePH:Cal,mid,7.00>");
+                Serial2.println("<CalibratePH:Cal,mid,7.00>");
                 phMillis = millis();
                 stopPHReadings = false;
                 break;
@@ -266,7 +271,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<CalibratePH:Cal,low,4.00>");
+                Serial2.println("<CalibratePH:Cal,low,4.00>");
                 phMillis = millis();
                 stopPHReadings = false;
                 break;
@@ -275,9 +280,9 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopPHReadings = true;
                 delay(2000);
-                Serial1.println("<CalibratePH:Cal,high,10.00>");
+                Serial2.println("<CalibratePH:Cal,high,10.00>");
                 delay(2000);
-                Serial1.println("<CalibratePH:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
+                Serial2.println("<CalibratePH:Cal,?>");               //I'm asking the EZO pH circuit here how many points it has calibrated. To know I was successful, I'm looking for an answer of 3.
                 phMillis = millis();
                 stopPHReadings = false;
                 break;
@@ -295,7 +300,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopTDSReadings = true;
                 delay(2000);
-                Serial1.println("<TDSCalibrate:Cal,dry>");
+                Serial2.println("<TDSCalibrate:Cal,dry>");
                 delay(1000);
                 tdsMillis = millis();
                 stopTDSReadings = false;
@@ -305,7 +310,7 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopTDSReadings = true;
                 delay(2000);
-                Serial1.println("<TDSCalibrate:Cal,low,700>");
+                Serial2.println("<TDSCalibrate:Cal,low,700>");
                 delay(1000);
                 tdsMillis = millis();
                 stopTDSReadings = false;
@@ -315,9 +320,9 @@ void callback(char* topic, byte* payload, unsigned int length)
             {
                 stopTDSReadings = true;
                 delay(2000);
-                Serial1.println("<TDSCalibrate:Cal,high,2000>");
+                Serial2.println("<TDSCalibrate:Cal,high,2000>");
                 delay(2000);
-                Serial1.println("<TDSCalibrate:Cal,?>");              // Again, how many points of calibration?
+                Serial2.println("<TDSCalibrate:Cal,?>");              // Again, how many points of calibration?
                 tdsMillis = millis();
                 stopTDSReadings = false;
                 break;
@@ -328,16 +333,19 @@ void callback(char* topic, byte* payload, unsigned int length)
 
 void reconnect()
 {
+ 
     byte mqttFailCount = 0;
     byte tooManyFailures = 10;
     // Loop until we're reconnected
     while (!client.connected())
     {
+     
         if (mqttFailCount <= tooManyFailures)
         {
             Serial.print("Attempting MQTT connection...");
             if (client.connect("ESP32Client", mqtt_user, mqtt_password))
             {
+                //return;
                 delay(1000);        
                 client.publish("feedback/general", "Garden controller connecting...");
                 delay(1000);
@@ -349,10 +357,11 @@ void reconnect()
                 client.subscribe("calibrate/pH");
                 client.subscribe("calibrate/TDS");
                 client.subscribe("calibrate/dosing");
-                Serial.print("Subscribed to MQTT stuff...");
+                Serial.println("Subscribed to MQTT stuff...");
             }
             else
             {
+             // return;
                 digitalWrite(BUILTIN_LED, LOW);
                 mqttFailCount ++;
                 Serial.print("Failed. Count = ");
@@ -364,6 +373,7 @@ void reconnect()
         }
         else
         {
+          //return;
             Serial.print(tooManyFailures);
             Serial.println(" MQTT failures in a row. Resetting WiFi connection.");
             WiFi.disconnect();
@@ -376,47 +386,93 @@ void reconnect()
 
 void setup()
 {   
-    //char buff[60];
-    Serial.begin(115200);
-    Serial1.begin(115200);
-    Serial.read();
-    Serial1.read();
 
+
+  //char buff[60];
+  Serial.begin(115200);
+  Serial2.begin(115200);
+  Serial.println("Setup start");
+/*
+   ledcAttachPin(PIN_PWM_FAN, pwmChannel[6]);
+  ledcWrite(pwmChannel[6], 125);
+ */
+
+    //Serial2.begin(MY_BAUDRATE, SERIAL_8N1, PIN_ESPMINI_RX, PIN_ESPMINI_TX);
+    Serial.read();
+    Serial2.read();
+  for (int i = 0; i < NUM_ELEMENTS(dosingPumpEnablePin); i++)
+  {
+    pinMode(dosingPumpEnablePin[i], OUTPUT);
+  }
     pinMode(BUILTIN_LED, OUTPUT);
+    
     setup_wifi();
     client.setServer(mqtt_server, mqtt_port);
     client.setCallback(callback);
  
     sensors.begin();
     bme.begin(0x76);
-    getWaterTemp();
+   /* getWaterTemp();
     getBoxTemp();
     getBoxHumidity();
-
- 
+*/
+   //Configure LED PWM functionalitites
+  for (int i = 0; i < NUM_ELEMENTS(dosingPumpPWMpin); i++)   // The condition in for loop is -1 because the noctua fan pwm channel is the last one and we will update it separately below
+  {
+    ledcSetup(pwmChannel[i], freq, resolution);
+    ledcAttachPin(dosingPumpPWMpin[i], pwmChannel[i]);
+  }
+ // ledcAttachPin(PIN_PWM_FAN, pwmChannel[6]);
+ // ledcWrite(pwmChannel[6], 125);
     //Configure LED PWM functionalitites
-    ledcSetup(PIN_PWM_FAN, freq, resolution);
+  //  ledcSetup(PIN_PWM_FAN, freq, resolution);
    
-    ledcAttachPin(PIN_PWM_FAN, 1);///pwmChannel[6]);
+  //  ledcAttachPin(PIN_PWM_FAN, 1);///pwmChannel[6]);
 //     return;
  //   ledcWrite(1,125);//pwmChannel[NOCTUA], 125);
-  for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
-  {
-    if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
-    {
-      setPumpPower(i, 0);                                                                               // Shut it off by setting timer to 0.
-    }
-  }
+
+   return;
 }
 
 void loop()                                                                           // I'm using millis() to try to keep my loop running as fast as possible. I tried to avoid having any "delay(x)" lines, which block the program.
 {
+  /*byte address[8];
+  
+  oneWire.reset_search();
+  while(onewire.search(address))
+  {
+    if (address[0] != 0x28)
+      continue;
+      
+    if (OneWire::crc8(address, 7) != address[7])
+    {
+      Serial.println(F("1-Wire bus connection error!"));
+      break;
+    }
+    
+    for (byte i=0; i<8; i++)
+    {
+      Serial.print(F("0x"));
+      Serial.print(address[i], HEX);
+      
+      if (i < 7)
+        Serial.print(F(", "));
+    }
+    Serial.println();
+  }
+  
+  while(1);*/
+ // Scanner ();
+  //delay (100);
+// Serial.println("looping...");
+//digitalWrite(32, HIGH);
+//return;
+  //Serial.println("Starting Loop");
     currentMillis = millis();
     if (!client.connected())
     {
         reconnect();
     }
-
     if (currentMillis - tempCheckMillis >= tempCheckPeriod)                             // Is it time to check temps?
     {
         getWaterTemp();
@@ -430,33 +486,41 @@ void loop()                                                                     
         {
             if ((celcius >= 10) && (celcius <= 30))                                         // Make sure I'm not getting a garbage reading from temp sensor prior to sending temp compensation to pH circuit
             {
-                Serial1.print("<P:T,");
-                Serial1.print(waterTemp);
-                Serial1.println('>');
+                Serial2.print("<P:T,");
+                Serial2.print(waterTemp);
+                Serial2.println('>');
                 tempCompMillis = millis();
                 phMillis = millis();
             }
         }
         else                                                
         {
-            Serial1.println("<P:R>");
+            Serial2.println("<P:R>");
             phMillis = millis();
         }
     }
     if ((currentMillis - tdsMillis > tdsPeriod) && (stopTDSReadings == false)) 
     { 
-        Serial1.println("<T:R>");
+        Serial2.println("<T:R>");
         tdsMillis = millis();
     }
-    Serial.println("looping...1");
+
+      for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
+  {
+    if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
+    {
+      setPumpPower(i, 0);                                                                               // Shut it off by setting timer to 0.
+    }
+  }
+  //  Serial.println("looping...1");
     recvWithStartEndMarkers();                                            // Gather data sent from Mega over serial
  //   recvWithStartEndMarkers2();                                            // Allow for direct input
  //   recvWithStartEndMarkers3();                                            // Allow for direct input
- Serial.println("looping2...");
+ //Serial.println("looping2...");
     processSerialData();
-    Serial.println("looping3...");
+  //  Serial.println("looping3...");
     client.loop();                                                       // MQTT client loop is required at end of void loop().
-    Serial.println("looping...");
+ //   Serial.println("looping...");
 }
 
 void recvWithStartEndMarkers()                                        // Function to receive serial data from Mega in format of "<MESSAGE>". Thanks Robin2!
@@ -470,9 +534,10 @@ void recvWithStartEndMarkers()                                        // Functio
   while (Serial2.available() > 0 && newData == false)
   {
     rc = Serial2.read();
-
+    
     if (recvInProgress == true)
     {
+      //Serial.println(rc);
       if (rc != endMarker)
       {
         receivedChars[ndx] = rc;
@@ -490,7 +555,6 @@ void recvWithStartEndMarkers()                                        // Functio
         newData = true;
       }
     }
-
     else if (rc == startMarker)
     {
       recvInProgress = true;
@@ -598,16 +662,21 @@ void processSerialData()
   if (newData != true){return;} 
   client.publish("feedback/debug", receivedChars);
   char commandChar = receivedChars[0];
-  Serial.print("Data Received: ");
-  Serial.println(receivedChars);
+  //Serial.print("Data Received from MEGA: ");
+  //Serial.println(receivedChars);
   switch (commandChar)
   {
     case 'H': // If message starts with 'H' (pH)
     {
-      char* strtokIndx;
+      /*char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier
-      strtokIndx = strtok(NULL, ":");
-      client.publish("feedback/ph", strtokIndx);
+      strtokIndx = strtok(NULL, ":");*/
+      String strReceivedChars(receivedChars); // Create a String object from the char array
+
+int colonIndex = strReceivedChars.indexOf(':'); // Find the index of the colon separator
+String value = strReceivedChars.substring(colonIndex + 1); // Extract the value after the colon separator
+
+      client.publish("feedback/ph", value.c_str());
       if (receivedChars[8] == '3')
       {
           client.publish("feedback/general", "pH Cal Successful!");   // When we ask the pH EZO circuit above how many points it has calibrated, if it responds with a 3 here, publish success message to HA.
@@ -616,10 +685,14 @@ void processSerialData()
     }
     case 'T':  // If message starts with 'T' (TDS)
     {
-      char* strtokIndx;
+      /*char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier;
-      strtokIndx = strtok(NULL, ":");
-      client.publish("feedback/tds", strtokIndx);
+      strtokIndx = strtok(NULL, ":");*/
+            String strReceivedChars(receivedChars); // Create a String object from the char array
+
+int colonIndex = strReceivedChars.indexOf(':'); // Find the index of the colon separator
+String value = strReceivedChars.substring(colonIndex + 1); // Extract the value after the colon separator
+      client.publish("feedback/tds", value.c_str());
       if (receivedChars[8] == '2')   // EC is considered 2 point calibration for some reason (dry, low, high)
       {
           client.publish("feedback/general", "TDS Cal Successful!");
@@ -633,7 +706,7 @@ void processSerialData()
     }
     case 'W':
     {
-      char* strtokIndx;
+/*      char* strtokIndx;
       char* waterSensorNumberStr;
       char* waterSensorValueStr;
       char* topic;
@@ -644,10 +717,21 @@ void processSerialData()
       waterSensorValueStr = strtok(NULL, ":");
       waterSensorValue = atol(strtokIndx);  
       sprintf(strtokIndx, "%d:%d", waterSensorNumber, waterSensorValue);
-      Serial.println(strtokIndx);
+     // Serial.println(strtokIndx);
       strcpy(topic, "feedback/water_level/sensor");
       strcat(topic, waterSensorNumberStr);
-      client.publish(topic, waterSensorValueStr);
+      client.publish(topic, waterSensorValueStr);*/
+      String strReceivedChars(receivedChars);
+String waterSensorNumberStr, waterSensorValueStr, topic;
+int waterSensorNumber, waterSensorValue;
+waterSensorNumberStr = strReceivedChars.substring(0, strReceivedChars.indexOf(':')); // Extract water sensor number
+waterSensorNumber = waterSensorNumberStr.toInt(); // Convert string to integer
+waterSensorValueStr = strReceivedChars.substring(strReceivedChars.indexOf(':') + 1); // Extract water sensor value
+waterSensorValue = waterSensorValueStr.toInt(); // Convert string to integer
+String payload = String(waterSensorNumber) + ":" + String(waterSensorValue);
+// Serial.println(payload);
+topic = "feedback/water_level/sensor" + waterSensorNumberStr;
+client.publish(topic.c_str(), payload.c_str());
       break;
     }    
 
@@ -670,14 +754,21 @@ void processSerialData()
       onTime = atol(strtokIndx);      
       
       sprintf(strtokIndx, "%d:%d", pumpNumber, onTime > 0);
-      Serial.println(strtokIndx);
+      //Serial.println(strtokIndx);
       client.publish("feedback/dosing", strtokIndx);       
       break;
     }
     case 'M':
     {
+      String strReceivedChars(receivedChars); 
+      String soilMoistureNumber, moistureReading, topic;
+      soilMoistureNumber = strReceivedChars.substring(0, strReceivedChars.indexOf(':')); // Extract soil moisture number
+      moistureReading = strReceivedChars.substring(strReceivedChars.indexOf(':') + 1); // Extract moisture reading
+      topic = "feedback/soil_moisture/sensor" + soilMoistureNumber; // Create topic string
+      Serial.println(topic + ">>" + moistureReading); // Print topic and moisture reading
+      client.publish(topic.c_str(), moistureReading.c_str()); // Publish to MQTT broker
       //char* strtokIndx;
-      char* soilMoistureNumber;
+/*      char* soilMoistureNumber;
       char* moistureReading;
       char* topic;
 
@@ -693,7 +784,7 @@ void processSerialData()
       Serial.print(topic);
       Serial.print(">>");
       Serial.println(moistureReading);
-      client.publish(topic, moistureReading);     
+      client.publish(topic, moistureReading);     */
       break;
     }
     case 'P':
@@ -735,6 +826,8 @@ void getWaterTemp()
     sensors.requestTemperatures();
     celcius = sensors.getTempCByIndex(0);
     snprintf(waterTemp, sizeof(waterTemp), "%.1f", f);
+    Serial.println(waterTemp);
+    Serial.println(sensors.getTempFByIndex(0));
     if (waterTemp[0] != '-')
     {
       client.publish("feedback/waterTemp", waterTemp);
@@ -784,6 +877,7 @@ void setPumpSpeeds(int pumpNumber, int pumpSpeed)
 void setPumpPower(int pumpNumber, long onTime)
 {
   char buff[5];
+  Serial.println(dosingPumpEnablePin[pumpNumber]);
   digitalWrite(dosingPumpEnablePin[pumpNumber], onTime);           // If onTime is > 0, write the pin high. Otherwise write it low.
   if (onTime > 0)
   {
@@ -799,3 +893,28 @@ void setPumpPower(int pumpNumber, long onTime)
   Serial.println(buff);
   client.publish("feedback/dosing", buff);                        // Send feedback (<PUMP#>:<STATE>)
 }
+void Scanner ()
+{
+  Serial.println ();
+  Serial.println ("I2C scanner. Scanning ...");
+  byte count = 0;
+
+  Wire.begin();
+  for (byte i = 8; i < 120; i++)
+  {
+    Wire.beginTransmission (i);          // Begin I2C transmission Address (i)
+    if (Wire.endTransmission () == 0)  // Receive 0 = success (ACK response) 
+    {
+      Serial.print ("Found address: ");
+      Serial.print (i, DEC);
+      Serial.print (" (0x");
+      Serial.print (i, HEX);     // PCF8574 7 bit address
+      Serial.println (")");
+      count++;
+    }
+  }
+  Serial.print ("Found ");      
+  Serial.print (count, DEC);        // numbers of devices
+  Serial.println (" device(s).");
+}
+
