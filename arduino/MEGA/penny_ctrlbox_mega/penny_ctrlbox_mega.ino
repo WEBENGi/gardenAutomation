@@ -51,12 +51,12 @@
 #define WATER_LEAK_SENSOR_1 34  // should this be analog?
 #define PIN_RELAY8_01 43 
 #define PIN_RELAY8_02 42
-#define PIN_RELAY8_03 40
-#define PIN_RELAY8_04 36
-#define PIN_RELAY8_05 41  
-#define PIN_RELAY8_06 39 
-#define PIN_RELAY8_07 37
-#define PIN_RELAY8_08 38 
+#define PIN_RELAY8_03 41
+#define PIN_RELAY8_04 40
+#define PIN_RELAY8_05 36
+#define PIN_RELAY8_06 38
+#define PIN_RELAY8_07 39
+#define PIN_RELAY8_08 37 
 #define PIN_RELAY4_01 47
 #define PIN_RELAY4_02 46
 #define PIN_RELAY4_03 45
@@ -534,26 +534,15 @@ void processSerialData() {
       char buffer[10]; // Create a buffer to hold the string representation of the value
       dtostrf(value, 6, 3, buffer); // Convert the value to a string with 6 digits and 2 decimal places
       String output = "<PH:" + String(buffer) + ">";
-    //String output = String::format("<PH:%.3f>", value); 
-        //  sprintf(buff, "<TDS:%s>", strReading );
           Serial.print("Printing to Serial: ");
           Serial.println(output);
           Serial3.println(output);
-          //sprintf(buff, "<PH:%s>", buff);
-         // Serial.print("Printing to Serial: ");
-          //Serial.println(buff);
-          //Serial3.println(buff);
         }
         break;
       }
     case 'T':  // If the message from the ESP32 starts with a "1", it's related to EC.
       {
-        
-        //char* strtokIndx;
-        //char strReading[6];
-        //strtokIndx = 
         strtok(receivedChars, ":");
-        //Serial.println(receivedChars);
         cmd = strtok(NULL, ":");
         if (cmd[0] == 'C' || cmd[0] == 'R') {
           waterTDSPeriod = 1400;  // If a command has been sent to calibrate or take a reading we wait 1400ms so that the circuit has time to take the reading.
@@ -562,17 +551,10 @@ void processSerialData() {
         }
 
         if (cmd[0] != 'T') {
-         // String buff;
-     //     Serial.println(readTDSSensor());
-     //     newData = false;
-   //      dtostrf(1, 1, 1, strReading);
-//return;
-          // dtostrf(floatVar, minimumWidth, numDecimalPlaces, charBuffer)
-        //  dtostrf(readTDSSensor(), 6, 3, strReading); // Convert myFloat to a string with 3 decimal places and store it in buffer
           float value = readTDSSensor();
-      char buffer[10]; // Create a buffer to hold the string representation of the value
-      dtostrf(value, 6, 3, buffer); // Convert the value to a string with 6 digits and 2 decimal places
-      String output = "<TDS:" + String(buffer) + ">";
+          char buffer[10]; // Create a buffer to hold the string representation of the value
+          dtostrf(value, 6, 3, buffer); // Convert the value to a string with 6 digits and 2 decimal places
+          String output = "<TDS:" + String(buffer) + ">";
         //  sprintf(buff, "<TDS:%s>", strReading );
           Serial.print("Printing to Serial: ");
           Serial.println(output);
@@ -624,21 +606,25 @@ void readSoilCapacitanceSensors(const int sensorPins[], int numSensors) {
   //Serial.print("Soil Moisture Sensor Voltage: ");
   Serial.print((float(sensorValue)/1023.0)*3.3); // read sensor
   Serial.println(" V");
+  String output = "<M:"+String(i)+":" + String(sensorValue) + ">";
+  Serial3.println(output);
     delay(1000);
-    return;
+ //   return;
   }
 }
 float checkTDSSensor() {
+  char buffer[10]; // Create a buffer to hold the string representation of the value
   tdsValue = readTDSSensor();
   
   if (tdsValue>-1){
-  Serial.print("TDS Value: ");
-  Serial.print(tdsValue, 0);
-  Serial.println("ppm");
-
-  Serial3.print("<TDS:");
-  Serial3.print(tdsValue, 0);  
-  Serial3.println(">");
+    dtostrf(tdsValue, 6, 3, buffer); // Convert the value to a string with 6 digits and 2 decimal places
+    String output = "<TDS:" + String(buffer) + ">";
+    //Serial.print("TDS Value: ");
+    Serial.println(output);
+   // Serial.println("ppm");
+    //Serial3.print("<TDS:");
+    Serial3.println(output);  
+    //Serial3.println(">");
   }
   waterTDSMillis = millis();
   return tdsValue;

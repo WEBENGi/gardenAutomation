@@ -760,10 +760,11 @@ client.publish(topic.c_str(), payload.c_str());
     }
     case 'M':
     {
+
       String strReceivedChars(receivedChars); 
       String soilMoistureNumber, moistureReading, topic;
-      soilMoistureNumber = strReceivedChars.substring(0, strReceivedChars.indexOf(':')); // Extract soil moisture number
-      moistureReading = strReceivedChars.substring(strReceivedChars.indexOf(':') + 1); // Extract moisture reading
+      soilMoistureNumber = strReceivedChars.substring(strReceivedChars.indexOf(':')+1, strReceivedChars.lastIndexOf(':')); // Extract soil moisture number
+      moistureReading = strReceivedChars.substring(strReceivedChars.lastIndexOf(':')+1); // Extract moisture reading
       topic = "feedback/soil_moisture/sensor" + soilMoistureNumber; // Create topic string
       Serial.println(topic + ">>" + moistureReading); // Print topic and moisture reading
       client.publish(topic.c_str(), moistureReading.c_str()); // Publish to MQTT broker
