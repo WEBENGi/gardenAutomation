@@ -39,6 +39,7 @@
     Messages expected from Home Assitant / Listening (Callbacks):
     - control/dosing - Dosing pump power
     - control/relays - Relay power
+    - control/timers- Relay timers
     - calibrate/dosing - Dosing pump speed
     - calibrate/ph - PH calibration
     - calibrate/tds - TDS calibration
@@ -162,7 +163,7 @@ unsigned long phPeriod = 5000;                    // How long to wait, in millis
 unsigned long tdsPeriod = 5000;                    // How long to wait, in milliseconds, between polling tds sensor for values
 
 // WiFi/MQTT/Serial
-char ssid[]= "Penny Land";
+char ssid[]= "Penny Land2";
 const char* password = "Apollo is the best!";
 const char* mqtt_server = "192.168.1.142";
 const int mqtt_port = 1883;
@@ -204,13 +205,13 @@ void setup_wifi()
 
 void callback(char* topic, byte* payload, unsigned int length)
 {
-    char payloadStr[length + 1];              // Create a char array that's 1 byte longer than the incoming payload to copy it to and make room for the null terminator so it can be treated as string.
-    memcpy(payloadStr, payload, length);
-    payloadStr[length + 1] = '\0';
-    Serial.print("Callback--");
-    Serial.print(topic);
-    Serial.print("--");
-   Serial.println(payloadStr);
+  char payloadStr[length + 1];              // Create a char array that's 1 byte longer than the incoming payload to copy it to and make room for the null terminator so it can be treated as string.
+  memcpy(payloadStr, payload, length);
+  payloadStr[length + 1] = '\0';
+  Serial.print("Callback--");
+  Serial.print(topic);
+  Serial.print("--");
+  Serial.println(payloadStr);
   /***************** CALLBACK: 8-Channel Relay Board (In Control Box) *****************/
 
   if (strcmp(topic, "control/relays") == 0) // Incoming message format will be <BOARD#>:<RELAY#>:<STATE>. STATE is "1" for on, "0" for off. Example payload: "1:1:0" = on board 1, turn relay 1 ON.
@@ -237,6 +238,17 @@ void callback(char* topic, byte* payload, unsigned int length)
     setPumpPower(pumpNumber, onTime);
   }
 
+  /***************** CALLBACK: Timing *****************/
+  if (strcmp(topic, "control/timers") == 0)   // Incoming message format will be <RELAYSET#>:<RELAY#>:<ONTIME>. ONTIME is in milliseconds.
+  {
+    Serial2.print("<MSRelayTimers:");               // Print this command to the Mega since it handles the relays.
+    Serial2.print(payloadStr);
+    Serial2.println('>');
+    Serial.print("<MSRelayTimers:");               // Print this command to the Mega since it handles the relays.
+    Serial.print(payloadStr);
+    Serial.println('>');
+
+  }
   /***************** CALLBACK: Pump Speed Adjustments *****************/
 
   if (strcmp(topic, "calibrate/dosing") == 0)
@@ -352,6 +364,7 @@ void reconnect()
                 client.publish("feedback/general", "Garden controller connected.");
                 digitalWrite(BUILTIN_LED, HIGH);
 
+                client.subscribe("control/timers");
                 client.subscribe("control/relays");
                 client.subscribe("control/dosing");
                 client.subscribe("calibrate/pH");
@@ -505,13 +518,13 @@ void loop()                                                                     
         tdsMillis = millis();
     }
 
-      for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
-  {
-    if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
+    for (int i = 0; i < NUM_ELEMENTS(dosingPumpPeriod); i++)
     {
-      setPumpPower(i, 0);                                                                               // Shut it off by setting timer to 0.
+      if ((dosingPumpPeriod[i] > 0) && (currentMillis - dosingPumpMillis[i] >= dosingPumpPeriod[i]))      // If pump is on and its timer has expired...
+      {
+        setPumpPower(i, 0);                                                                               // Shut it off by setting timer to 0.
+      }
     }
-  }
   //  Serial.println("looping...1");
     recvWithStartEndMarkers();                                            // Gather data sent from Mega over serial
  //   recvWithStartEndMarkers2();                                            // Allow for direct input
@@ -673,8 +686,8 @@ void processSerialData()
       strtokIndx = strtok(NULL, ":");*/
       String strReceivedChars(receivedChars); // Create a String object from the char array
 
-int colonIndex = strReceivedChars.indexOf(':'); // Find the index of the colon separator
-String value = strReceivedChars.substring(colonIndex + 1); // Extract the value after the colon separator
+      int colonIndex = strReceivedChars.indexOf(':'); // Find the index of the colon separator
+      String value = strReceivedChars.substring(colonIndex + 1); // Extract the value after the colon separator
 
       client.publish("feedback/ph", value.c_str());
       if (receivedChars[8] == '3')
@@ -688,11 +701,13 @@ String value = strReceivedChars.substring(colonIndex + 1); // Extract the value 
       /*char* strtokIndx;
       strtokIndx = strtok(receivedChars, ":");  // Skip the first segment which is the identifier;
       strtokIndx = strtok(NULL, ":");*/
-            String strReceivedChars(receivedChars); // Create a String object from the char array
+      String strReceivedChars(receivedChars); // Create a String object from the char array
 
-int colonIndex = strReceivedChars.indexOf(':'); // Find the index of the colon separator
-String value = strReceivedChars.substring(colonIndex + 1); // Extract the value after the colon separator
+      int colonIndex = strReceivedChars.indexOf(':'); // Find the index of the colon separator
+      String value = strReceivedChars.substring(colonIndex + 1); // Extract the value after the colon separator
       client.publish("feedback/tds", value.c_str());
+      Serial.print("tdst:");
+      Serial.println(value.c_str());
       if (receivedChars[8] == '2')   // EC is considered 2 point calibration for some reason (dry, low, high)
       {
           client.publish("feedback/general", "TDS Cal Successful!");
@@ -722,16 +737,16 @@ String value = strReceivedChars.substring(colonIndex + 1); // Extract the value 
       strcat(topic, waterSensorNumberStr);
       client.publish(topic, waterSensorValueStr);*/
       String strReceivedChars(receivedChars);
-String waterSensorNumberStr, waterSensorValueStr, topic;
-int waterSensorNumber, waterSensorValue;
-waterSensorNumberStr = strReceivedChars.substring(0, strReceivedChars.indexOf(':')); // Extract water sensor number
-waterSensorNumber = waterSensorNumberStr.toInt(); // Convert string to integer
-waterSensorValueStr = strReceivedChars.substring(strReceivedChars.indexOf(':') + 1); // Extract water sensor value
-waterSensorValue = waterSensorValueStr.toInt(); // Convert string to integer
-String payload = String(waterSensorNumber) + ":" + String(waterSensorValue);
-// Serial.println(payload);
-topic = "feedback/water_level/sensor" + waterSensorNumberStr;
-client.publish(topic.c_str(), payload.c_str());
+      String waterSensorNumberStr, waterSensorValueStr, topic;
+      int waterSensorNumber, waterSensorValue;
+      waterSensorNumberStr = strReceivedChars.substring(0, strReceivedChars.indexOf(':')); // Extract water sensor number
+      waterSensorNumber = waterSensorNumberStr.toInt(); // Convert string to integer
+      waterSensorValueStr = strReceivedChars.substring(strReceivedChars.indexOf(':') + 1); // Extract water sensor value
+      waterSensorValue = waterSensorValueStr.toInt(); // Convert string to integer
+      String payload = String(waterSensorNumber) + ":" + String(waterSensorValue);
+      // Serial.println(payload);
+      topic = "feedback/water_level/sensor" + waterSensorNumberStr;
+      client.publish(topic.c_str(), payload.c_str());
       break;
     }    
 
@@ -814,6 +829,7 @@ client.publish(topic.c_str(), payload.c_str());
       
       sprintf(buff, "%d:%d:%d", boardNumber, relayNumber, relayPower);
       client.publish("feedback/relays",buff);
+      Serial.print('r:');
       Serial.println(buff);
       break;
     }
@@ -847,7 +863,7 @@ void getBoxTemp()
 void getBoxHumidity()
 {
   dtostrf(bme.readHumidity(), 3, 1, bmeBuffer);
-    Serial.print("getboxhumidity: ");
+  Serial.print("getboxhumidity: ");
   Serial.println(bmeBuffer);
   client.publish("feedback/boxHumidity", bmeBuffer);
 }
@@ -855,7 +871,7 @@ void getBoxHumidity()
 void getBoxPressure()
 {
   dtostrf(bme.readPressure() / 100.0F, 3, 1, bmeBuffer);
-    Serial.print("getboxpressure: ");
+  Serial.print("getboxpressure: ");
   Serial.println(bmeBuffer);
   client.publish("feedback/boxpressure", bmeBuffer);
 }

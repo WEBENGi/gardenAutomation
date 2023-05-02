@@ -97,6 +97,9 @@ int relayPins[2][8]
   {PIN_RELAY4_01, PIN_RELAY4_02, PIN_RELAY4_03, PIN_RELAY4_04}                               
   // 4 Chan Relay Board: [0]=Stirring fans , [1]=internal cooling fna , [2]=plug switch 5 , [3]=plug switch 4
 };
+unsigned long relayActive[2][8];
+unsigned long relayPeriod[2][8];
+unsigned long relayMillis[2][8];
 
 #define PIN_MEGA_TX0 14
 #define PIN_MEGA_RX0 15
@@ -128,7 +131,6 @@ char waterSensorNames[][22]  // For describing where flood sensor was triggered
     //  {"in overflow!"}
   };
 int waterSensorPins[]{ WATER_LEAK_SENSOR_1 };
-
 
 unsigned long currentMillis;       // Snapshot of current time
 unsigned long floodStartMillis;    // Timer to check for flood
@@ -248,7 +250,37 @@ void loop() {
   {
     checkPHSensor();
   }
-
+  for (int i = 0; i < 2; i++)
+  {
+    for (unsigned int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
+    {
+      if ((relayPeriod[i][j] > 0) && (currentMillis - relayMillis[i][j] >= relayPeriod[i][j]) && relayActive[i][j]==1)      // If pump is on and its timer has expired...
+      {
+          //Turn off relay and notify
+          triggerRelay(i, j, 0);
+          relayActive[i][j] = 0; 
+      }
+    }
+  }
+}
+void setRelayTiming(int relayBoard, int relayNumber, long onTime)
+{
+  char buff[5];
+  //Serial.println(dosingPumpEnablePin[pumpNumber]);
+  //digitalWrite(dosingPumpEnablePin[pumpNumber], onTime);           // If onTime is > 0, write the pin high. Otherwise write it low.
+  if (onTime > 0)
+  {
+    relayMillis[relayBoard][relayNumber] = millis();                      // If pump is being turned on, start the timer
+    relayPeriod[relayBoard][relayNumber] = onTime;
+  }
+  /*else
+  {
+    relayMillis[relayBoard][relayNumber] = 0;                           // If pump is being turned off, zero millis/period out.
+    relayPeriod[relayBoard][relayNumber] = 0;
+  }*/
+  sprintf(buff, "%d:%d:%d", relayBoard,relayNumber, onTime);
+  Serial.println(buff);
+  //client.publish("feedback/timing", buff);                        // Send feedback (<PUMP#>:<STATE>)
 }
 void checkPHSensor() {
   double currentPH;
@@ -531,9 +563,9 @@ void processSerialData() {
         //  dtostrf(readPHSensor(), 6, 3, buff); // Convert myFloat to a string with 3 decimal places and store it in buffer
                     float value = readPHSensor();
       
-      char buffer[10]; // Create a buffer to hold the string representation of the value
-      dtostrf(value, 6, 3, buffer); // Convert the value to a string with 6 digits and 2 decimal places
-      String output = "<PH:" + String(buffer) + ">";
+          char buffer[10]; // Create a buffer to hold the string representation of the value
+          dtostrf(value, 6, 3, buffer); // Convert the value to a string with 6 digits and 2 decimal places
+          String output = "<PH:" + String(buffer) + ">";
           Serial.print("Printing to Serial: ");
           Serial.println(output);
           Serial3.println(output);
@@ -580,14 +612,39 @@ void processSerialData() {
       //   Serial.println(strtokIndx);
         relayPower = atoi(strtok(NULL, ":"));
         
-         triggerRelay(boardNumber, relayNumber, relayPower);
+        triggerRelay(boardNumber, relayNumber, relayPower);
         
-        sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayPower);
-        Serial3.println(buff);
-        Serial.println(buff);
+        
         break;
       }
+   case 'M':                                                     // If message starts with "M", it's for Timingrelays. Message format is "MSTimingRelay:<BOARD#>:<RELAY#>:<TIME>". Example: "Relay:0:4:500" 0 = NONE
+      {
+        int relaySetNumber;
+        int relayNumber;
+        long onTime;
+
+        char buff[20];
+        cmd = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character 
+        relaySetNumber = atoi(strtok(NULL, ":"));                       // Get the relay number
+        relayNumber = atoi(strtok(NULL, ":"));                        // Get the relay power state
+        onTime = atoi(strtok(NULL, ":"));
+        
+        //triggerRelay(boardNumber, relayNumber, relayPower);
+        //Set Timing
+        setRelayTiming(relaySetNumber, relayNumber, onTime);
+
+      //  sprintf(buff, "<MSTimingRelay FB:%d:%d:%d>", relaySetNumber, relayNumber, onTime);
+       // Serial3.println(buff);
+        //Serial.println(buff);
+        /*
+          sprintf(buff, "%d:%d", pumpNumber, onTime > 0);
+  Serial.println(buff);
+  client.publish("feedback/dosing", buff);         
+        */
+        break;
+      }      
   }
+  
   newData = false;
 }
 void checkSoilWaterLvl() {
@@ -678,14 +735,20 @@ float getMedianNum(int* tdsValues, int numValues) {
 void triggerRelay(int boardNumber, int relayNumber, int relayTrigger)
 {
     char buff[50];
-    sprintf(buff, "Triggering board#:%d, relay#:%d, state: %d",boardNumber,relayNumber,relayTrigger);
-    Serial.println(buff);
+   // sprintf(buff, "Triggering board#:%d, relay#:%d, state: %d",boardNumber,relayNumber,relayTrigger);
+  //  Serial.println(buff);
     if (relayTrigger == 1)
     {
       digitalWrite(relayPins[boardNumber][relayNumber], LOW); // Turn relay ON
+      relayActive[boardNumber][relayNumber] = 1;
     }
     else if (relayTrigger == 0)
     {
       digitalWrite(relayPins[boardNumber][relayNumber], HIGH); // Turn relay OFF
+      relayActive[boardNumber][relayNumber] = 0;
     }
+      sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayTrigger);
+      Serial3.println(buff);
+      Serial.println(buff);
+
 }
