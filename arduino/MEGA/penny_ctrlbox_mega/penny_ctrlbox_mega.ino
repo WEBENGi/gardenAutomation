@@ -30,6 +30,9 @@
     - <TDSCalibrate:PAYLOAD>
     - <Relay:<BOARD#>:<RELAY#>:<STATUS>"
   - TODO:
+    - Keep Alive Ping/Pong 
+    - Maybe have alternative serials just incase
+    - OTA for both devices?
     - Get flood sensor on an analog pin!
     - How to calculate water amounts with ultrasonic?
     - Calibrate PH
@@ -43,7 +46,7 @@
      dISTANCE sensors seemto be 590+ TDS <0
 
 ***********************************************************************************************************************************************/
-
+#include <limits.h>
 #define NUM_ELEMENTS(x) (sizeof(x) / sizeof((x)[0]))  // Use to calculate how many elements are in an array
 
 //placeholders for the pins
@@ -133,6 +136,7 @@ char waterSensorNames[][22]  // For describing where flood sensor was triggered
 int waterSensorPins[]{ WATER_LEAK_SENSOR_1 };
 
 unsigned long currentMillis;       // Snapshot of current time
+unsigned long timeDifference;
 unsigned long floodStartMillis;    // Timer to check for flood
 unsigned long soilWaterLvlMillis;  // Timer to check water soil levels
 unsigned long drainBucketMillis;   // Timer to check drain basin float sensor
@@ -253,24 +257,36 @@ void loop() {
   for (int i = 0; i < 2; i++)
   {
     for (unsigned int j = 0; j < NUM_ELEMENTS(relayPins[i]); j++)
-    {
-      if ((relayPeriod[i][j] > 0) && (currentMillis - relayMillis[i][j] >= relayPeriod[i][j]) && relayActive[i][j]==1)      // If pump is on and its timer has expired...
+    { 
+      /*//timeDifference =  currentMillis - relayMillis[i][j];
+      if (currentMillis >= relayMillis[i][j]) {
+        timeDifference = currentMillis - relayMillis[i][j];
+      } else {
+        timeDifference = (ULONG_MAX - relayMillis[i][j]) + currentMillis + 1;
+      }*/
+      if ((relayPeriod[i][j] > 0) && (currentMillis >= relayMillis[i][j]) && ( currentMillis - relayMillis[i][j] >= relayPeriod[i][j]) && relayActive[i][j]==1)      // If pump is on and its timer has expired...
       {
           //Turn off relay and notify
           triggerRelay(i, j, 0);
           relayActive[i][j] = 0; 
+          Serial.println(currentMillis);
+          Serial.println(relayMillis[i][j]);
+          Serial.println(relayPeriod[i][j]);
+          Serial.println(timeDifference);
+          //Serial.println(currentMillis - relayMillis[i][j] >= relayPeriod[i][j]);
+          Serial.println("shutting off");
       }
     }
   }
 }
 void setRelayTiming(int relayBoard, int relayNumber, long onTime)
 {
-  char buff[5];
+  //char buff[5];
+  relayMillis[relayBoard][relayNumber] = millis();   // If pump is being turned on, start the timer
   //Serial.println(dosingPumpEnablePin[pumpNumber]);
   //digitalWrite(dosingPumpEnablePin[pumpNumber], onTime);           // If onTime is > 0, write the pin high. Otherwise write it low.
   if (onTime > 0)
-  {
-    relayMillis[relayBoard][relayNumber] = millis();                      // If pump is being turned on, start the timer
+  {            
     relayPeriod[relayBoard][relayNumber] = onTime;
   }
   /*else
@@ -278,8 +294,10 @@ void setRelayTiming(int relayBoard, int relayNumber, long onTime)
     relayMillis[relayBoard][relayNumber] = 0;                           // If pump is being turned off, zero millis/period out.
     relayPeriod[relayBoard][relayNumber] = 0;
   }*/
-  sprintf(buff, "%d:%d:%d", relayBoard,relayNumber, onTime);
-  Serial.println(buff);
+  String output = String(relayBoard) + ":" + String(relayNumber) + ":" + String(onTime);
+  //sprintf(buff, "%d:%d:%d", relayBoard,relayNumber, onTime);
+  Serial.print("srt:");
+  Serial.println(output);
   //client.publish("feedback/timing", buff);                        // Send feedback (<PUMP#>:<STATE>)
 }
 void checkPHSensor() {
@@ -369,7 +387,7 @@ void checkWaterLvl2() {
   // print the water level measurement to the serial monitor
   // Is it really cm?
   Serial.print("Distance2: ");
-    Serial.print(distance);
+  Serial.print(distance);
   Serial.print(" cm, ");
   Serial.print(distance/2.54);
   Serial.print(" in, ");
@@ -600,7 +618,7 @@ void processSerialData() {
         int relayNumber;
         int relayPower;
         //char* strtokIndx;  
-        char buff[20];
+      //  char buff[20];
        //Serial.println(receivedChars);
         cmd = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character 
       // Serial.println(strtokIndx);
@@ -613,7 +631,7 @@ void processSerialData() {
         relayPower = atoi(strtok(NULL, ":"));
         
         triggerRelay(boardNumber, relayNumber, relayPower);
-        
+        setRelayTiming(boardNumber, relayNumber, relayPeriod[boardNumber][relayNumber]);
         
         break;
       }
@@ -623,19 +641,19 @@ void processSerialData() {
         int relayNumber;
         long onTime;
 
-        char buff[20];
+        //char buff[20];
         cmd = strtok(receivedChars, ":");                    // Skip the first segment which is the 'R' character 
         relaySetNumber = atoi(strtok(NULL, ":"));                       // Get the relay number
         relayNumber = atoi(strtok(NULL, ":"));                        // Get the relay power state
-        onTime = atoi(strtok(NULL, ":"));
+        onTime = atol(strtok(NULL, ":"));
         
         //triggerRelay(boardNumber, relayNumber, relayPower);
         //Set Timing
         setRelayTiming(relaySetNumber, relayNumber, onTime);
-
-      //  sprintf(buff, "<MSTimingRelay FB:%d:%d:%d>", relaySetNumber, relayNumber, onTime);
-       // Serial3.println(buff);
-        //Serial.println(buff);
+        String buff = "<MS FB:" + String(relaySetNumber) + ":" + String(relayNumber) + ":" + String(onTime) + ">";
+//        sprintf(buff, "<MS FB:%d:%d:%d>", relaySetNumber, relayNumber, onTime);
+        //Serial3.println(buff);
+        Serial.println(buff.c_str());
         /*
           sprintf(buff, "%d:%d", pumpNumber, onTime > 0);
   Serial.println(buff);
@@ -660,11 +678,11 @@ void readSoilCapacitanceSensors(const int sensorPins[], int numSensors) {
     Serial.print(" reading: ");
     Serial.print(sensorValue);
     Serial.print(" or ");
-  //Serial.print("Soil Moisture Sensor Voltage: ");
-  Serial.print((float(sensorValue)/1023.0)*3.3); // read sensor
-  Serial.println(" V");
-  String output = "<M:"+String(i)+":" + String(sensorValue) + ">";
-  Serial3.println(output);
+    //Serial.print("Soil Moisture Sensor Voltage: ");
+    Serial.print((float(sensorValue)/1023.0)*3.3); // read sensor
+    Serial.println(" V");
+    String output = "<M:"+String(i)+":" + String(sensorValue) + ">";
+    Serial3.println(output);
     delay(1000);
  //   return;
   }
@@ -747,8 +765,9 @@ void triggerRelay(int boardNumber, int relayNumber, int relayTrigger)
       digitalWrite(relayPins[boardNumber][relayNumber], HIGH); // Turn relay OFF
       relayActive[boardNumber][relayNumber] = 0;
     }
-      sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayTrigger);
-      Serial3.println(buff);
-      Serial.println(buff);
-
+    sprintf(buff, "<Relay FB:%d:%d:%d>", boardNumber, relayNumber, relayTrigger);
+    Serial3.println(buff);
+    Serial.print(relayPeriod[boardNumber][relayNumber]);
+    Serial.print("-");
+    Serial.println(buff);
 }

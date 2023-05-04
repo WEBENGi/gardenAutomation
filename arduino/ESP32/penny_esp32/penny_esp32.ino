@@ -205,9 +205,18 @@ void setup_wifi()
 
 void callback(char* topic, byte* payload, unsigned int length)
 {
-  char payloadStr[length + 1];              // Create a char array that's 1 byte longer than the incoming payload to copy it to and make room for the null terminator so it can be treated as string.
+  //Serial.print()
+  /*char payloadStr[length + 1];              // Create a char array that's 1 byte longer than the incoming payload to copy it to and make room for the null terminator so it can be treated as string.
   memcpy(payloadStr, payload, length);
-  payloadStr[length + 1] = '\0';
+  payloadStr[length + 1] = '\0';/*/
+  String message;
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  message.trim(); // Trim the received message
+  char payloadStr[message.length() + 1];
+  message.toCharArray(payloadStr, message.length() + 1);
   Serial.print("Callback--");
   Serial.print(topic);
   Serial.print("--");
@@ -241,10 +250,10 @@ void callback(char* topic, byte* payload, unsigned int length)
   /***************** CALLBACK: Timing *****************/
   if (strcmp(topic, "control/timers") == 0)   // Incoming message format will be <RELAYSET#>:<RELAY#>:<ONTIME>. ONTIME is in milliseconds.
   {
-    Serial2.print("<MSRelayTimers:");               // Print this command to the Mega since it handles the relays.
+    Serial2.print("<MSRT:");               // Print this command to the Mega since it handles the relays.
     Serial2.print(payloadStr);
     Serial2.println('>');
-    Serial.print("<MSRelayTimers:");               // Print this command to the Mega since it handles the relays.
+    Serial.print("<MSRT:");               // Print this command to the Mega since it handles the relays.
     Serial.print(payloadStr);
     Serial.println('>');
 
@@ -340,7 +349,7 @@ void callback(char* topic, byte* payload, unsigned int length)
                 break;
             }
         }
-    }
+    }    
 }
 
 void reconnect()
@@ -575,101 +584,6 @@ void recvWithStartEndMarkers()                                        // Functio
   }
 }
 
-void recvWithStartEndMarkers3()
-{
-
-    static boolean recvInProgress = false;
-    static byte ndx = 0;
-    char startMarker = '{';
-    char endMarker = '}';
-    char rc;
-    char separator = '|';
-
-    while (Serial.available() > 0 && newData == false)
-    {
-        rc = Serial.read();
-
-        if (recvInProgress == true)
-        {
-            if (rc != endMarker)
-            {
-                receivedChars[ndx] = rc;
-                ndx++;
-                if (ndx >= numChars)
-                {
-                    ndx = numChars - 1;
-                }
-            }
-            else
-            {
-                receivedChars[ndx] = '\0'; // Terminate the string
-                recvInProgress = false;
-                ndx = 0;
-                newData = true;
-
-                // Extract topic and payload from receivedChars
-                char* separatorPos = strchr(receivedChars, separator);
-                if (separatorPos != NULL)
-                {
-                    // Null-terminate the topic and get the payload
-                    *separatorPos = '\0';
-                    char* topic = receivedChars;
-                    char* payload = separatorPos + 1;
-
-                    // Call the callback function when all data is received
-                    callback(topic, (byte*)payload, strlen(payload));
-                      Serial.println("recv3");
-                  newData = false;
-                }
-            }
-        }
-        else if (rc == startMarker)
-        {
-            recvInProgress = true;
-        }
-    }
-}
-
-
-void recvWithStartEndMarkers2()                                        // Function to receive serial data from Mega in format of "<MESSAGE>". Thanks Robin2!
-{
-    static boolean recvInProgress = false;
-    static byte ndx = 0;
-    char startMarker = '<';
-    char endMarker = '>';
-    char rc;
-
-    while (Serial.available() > 0 && newData == false)
-    {
-        rc = Serial.read();
-
-        if (recvInProgress == true)
-        {
-            if (rc != endMarker)
-            {
-                receivedChars[ndx] = rc;
-                ndx++;
-                if (ndx >= numChars)
-                {
-                ndx = numChars - 1;
-                }
-            }
-            else
-            {
-                receivedChars[ndx] = '\0'; //Terminate the string
-                recvInProgress = false;
-                ndx = 0;
-                newData = true;
-            }
-        }
-
-        else if (rc == startMarker)
-        {
-        recvInProgress = true;
-        }
-    }
-}
-
 void processSerialData()
 {
   if (newData != true){return;} 
@@ -706,7 +620,7 @@ void processSerialData()
       int colonIndex = strReceivedChars.indexOf(':'); // Find the index of the colon separator
       String value = strReceivedChars.substring(colonIndex + 1); // Extract the value after the colon separator
       client.publish("feedback/tds", value.c_str());
-      Serial.print("tdst:");
+      Serial.print("TDS:");
       Serial.println(value.c_str());
       if (receivedChars[8] == '2')   // EC is considered 2 point calibration for some reason (dry, low, high)
       {
@@ -829,7 +743,6 @@ void processSerialData()
       
       sprintf(buff, "%d:%d:%d", boardNumber, relayNumber, relayPower);
       client.publish("feedback/relays",buff);
-      Serial.print('r:');
       Serial.println(buff);
       break;
     }
