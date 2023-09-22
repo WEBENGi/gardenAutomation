@@ -285,10 +285,10 @@ void setRelayTiming(int relayBoard, int relayNumber, long onTime)
   relayMillis[relayBoard][relayNumber] = millis();   // If pump is being turned on, start the timer
   //Serial.println(dosingPumpEnablePin[pumpNumber]);
   //digitalWrite(dosingPumpEnablePin[pumpNumber], onTime);           // If onTime is > 0, write the pin high. Otherwise write it low.
-  if (onTime > 0)
-  {            
+  //if (onTime > 0)
+  //{            
     relayPeriod[relayBoard][relayNumber] = onTime;
-  }
+  //}
   /*else
   {
     relayMillis[relayBoard][relayNumber] = 0;                           // If pump is being turned off, zero millis/period out.
